@@ -1,0 +1,616 @@
+---
+title: "CNV_calling_ATAC"
+editor_options: 
+  chunk_output_type: console
+---
+
+Did CNV calling using these 2 tools
+
+# Epianeufinder
+## Running the tool
+
+
+
+## Reading in results 
+```{r}
+options(scipen = 999)
+library(data.table)
+cnv_calls <- fread('/projectnb/paxlab/presh/Data/epianeufinder/atac_results/epiAneufinder_results/results_table.tsv')
+
+
+cnv_calls$start <- as.numeric(cnv_calls$start)
+cnv_calls$end   <- as.numeric(cnv_calls$end)
+# arm_ranges$arm_start <- as.numeric(arm_ranges$arm_start)
+# arm_ranges$arm_end   <- as.numeric(arm_ranges$arm_end)
+
+rownames(cnv_calls) = paste(cnv_calls$seq, cnv_calls$start, cnv_calls$end, sep = '_')
+cnv_calls2 = cnv_calls[,-c(1:4)]
+rownames(cnv_calls2) = rownames(cnv_calls)
+
+```
+
+
+```{r}
+library("distances")
+# Compute distances between cells
+dist_mat <- as.dist(distances(t(cnv_calls2)))
+
+# Hierarchical clustering
+library(fastcluster)
+hc <- fastcluster::hclust(dist_mat, method = "ward.D")
+
+# Plot dendrogram
+plot(hc, main="Hierarchical Clustering of Cells", xlab="Cells", sub="", cex=0.6)
+```
+
+```{r}
+clusters <- cutree(hc, k = 12) 
+
+cluster_counts <- table(clusters)
+print(cluster_counts)
+
+# Basic dendrogram with colored branches by cluster
+library(dendextend)
+dend <- as.dendrogram(hc)
+dend_colored <- color_branches(dend, k = 12)
+
+plot(dend_colored, main = "Hierarchical Clustering Dendrogram (15 clusters)", ylab = "Height")
+
+# Optionally, visualize cluster assignments on a heatmap
+library(pheatmap)
+
+# Assume cell_mat_t is your cell-by-bin matrix from above
+annotation <- data.frame(Cluster = as.factor(clusters))
+rownames(annotation) <- rownames(t(cnv_calls2))
+
+# Suppose you have clusters numbered 1 to 10
+cluster_levels <- sort(unique(annotation$Cluster))
+cluster_colors <- setNames(RColorBrewer::brewer.pal(length(cluster_levels), "Set3"), cluster_levels)
+annotation_colors <- list(Cluster = cluster_colors)
+
+
+my_heatmap <-pheatmap(t(cnv_calls2), annotation_row = annotation, 
+         show_rownames = FALSE, cluster_rows = hc, cluster_cols = FALSE, cutree_rows = 4,
+         main = "Cell-by-Bin Heatmap, colored by 4 clusters",
+         annotation_colors = annotation_colors)
+
+
+save_pheatmap <- function(x, filename, width=16, height=8){
+  stopifnot(!missing(x))
+  stopifnot(!missing(filename))
+  if(grepl(".png",filename)){
+    png(filename, width=width, height=height, units = "in", res=300)
+    grid::grid.newpage()
+    grid::grid.draw(x$gtable)
+    dev.off()
+  }
+  else if(grepl(".pdf",filename)){
+    pdf(filename, width=width, height=height)
+    grid::grid.newpage()
+    grid::grid.draw(x$gtable)
+    dev.off()
+  }
+  else{
+    print("Filename did not contain '.png' or '.pdf'")
+  }
+}
+
+save_pheatmap(my_heatmap, "/projectnb/paxlab/presh/Data/epianeufinder/cnv_clust_pheatmap.png")
+dev.off()
+```
+
+```{r}
+last_heights <- tail(hc$height, 30)
+num_clusters <- 31:2 #how many clusters do we want to evaluate?
+
+#Plot the last 30 values against the range 2-31
+plot(num_clusters, last_heights, type = 'o', col = 'blue', pch = 16,
+     main = 'Cluster Distance vs Number of Clusters',
+     xlab = 'Number of Clusters', ylab = 'Cluster Distance')
+
+#Add a red dot at the elbow point
+points(num_clusters[28], last_heights[28], col = 'red', pch = 16)
+```
+
+
+
+
+# ATACNV
+```{r}
+library(AtaCNV)
+```
+
+```{r}
+fragment_file <- "/projectnb/paxlab/presh/Data/fragments.sort.filtered.bed.gz"
+cell_barcodes <- read.csv("/projectnb/paxlab/presh/Data/int_cells_trim_atac.csv", header=FALSE)
+
+```
+
+
+I don't want to generate the counts file by myself, using the epianeufinder results 
+
+```{r}
+counts_gc <- readRDS('/projectnb/paxlab/presh/Data/epianeufinder/atac_results/epiAneufinder_results/counts_gc_corrected.rds')
+counts_summary <- readRDS('/projectnb/paxlab/presh/Data/epianeufinder/atac_results/epiAneufinder_results/count_summary.rds') # for info on ranges
+```
+
+```{r}
+count = assay(counts_summary)
+rownames(count) = paste(counts_summary@rowRanges$wSeq, counts_summary@rowRanges$wStart, counts_summary@rowRanges$wEnd, sep = '_')
+
+norm_re <- normalize_AtaCNV(t(count),
+                             genome = "hg38", 
+                             mode = "all cells",
+                             output_dir = "/projectnb/paxlab/presh/AtaCNV_output",
+                             output_name = "norm_re.rds",
+                             gc_correction = TRUE
+                             )
+```
+
+
+
+```{r}
+options(scipen = 999)
+normalize_AtaCNV=  function (count, genome = "hg38", mode = "normal cells", thre_bin = 0.8, 
+    thre_cell = 1, thre_mappability = 5e+05, logFT = F, dlm_dV = 0.3, 
+    dlm_dW = 0.01, count_paired = "none", normal_cells = "none", 
+    cell_cluster = "none", cluster_method = "kmeans", K = 5, 
+    thre_correlation = 0.95, use_max_cor_cluster = F, thre_ncell = 30, 
+    cutoff = 3, gc_correction = TRUE, output_dir = "./", output_name = "none") 
+{
+    count <- t(count)
+    if (genome == "hg19") {
+        data("bin_info_hg19")
+        bin <- bin_info_hg19
+    }
+    else if (genome == "hg38") {
+        data("bin_info_hg38")
+        bin <- bin_info_hg38
+    }
+    else if (genome == "mm10") {
+        data("bin_info_mm10")
+        bin <- bin_info_mm10
+    }
+    use_paired <- F
+    if (mode == "matched normal sample") {
+        if (identical(count_paired, "none")) {
+            print("Count matrix of paired normal sample should be provided")
+        }
+        use_paired <- T
+        count_paired <- t(count_paired)
+    }
+    else if (mode == "normal cells") {
+        if (identical(normal_cells, "none")) {
+            print("Normal cells in this sample should be provided")
+        }
+    }
+    
+    # subset the bin to count bins 
+    rownames(bin) <- paste(bin$chr, bin$start + 1, bin$end, sep = '_')
+    bin <- bin[colnames(count),]
+    
+    print("Step 1: filtering bins and cells...")
+    norm_count <- count
+    if (use_paired) {
+        norm_count <- cbind(count_paired, norm_count)
+        thre_zero_bin <- thre_bin
+        temp <- rowSums(norm_count <= 0)
+        f1 <- temp < thre_zero_bin * dim(norm_count)[2] & bin$map >= 
+            thre_mappability
+        print(paste(" number of bin before filter:", length(f1)))
+        print(paste(" number of bin after filter:", sum(f1)))
+        norm_count <- norm_count[f1, ]
+        q <- quantile(norm_count, probs = c(1:100) * 0.01)
+        thre <- q[99]
+        norm_count[norm_count > thre] <- thre
+        thre_zero_cell <- thre_cell
+        temp <- colSums(norm_count[, (ncol(count_paired) + 1):ncol(norm_count)] <= 
+            0)
+        f2 <- temp < thre_zero_cell * nrow(norm_count)
+        print(paste(" number of cells before filter:", length(f2)))
+        print(paste(" number of cells after filter:", sum(f2)))
+        norm_count <- cbind(count_paired[f1, ], count[f1, f2])
+    }
+    else {
+        thre_zero_bin <- thre_bin
+        temp <- rowSums(norm_count <= 0)
+        f1 <- temp < thre_zero_bin * dim(norm_count)[2] & bin$map >= 
+            thre_mappability
+        print(paste(" number of bin before filter:", length(f1)))
+        print(paste(" number of bin after filter:", sum(f1)))
+        norm_count <- norm_count[f1, ]
+        q <- quantile(norm_count, probs = c(1:100) * 0.01)
+        thre <- q[99]
+        norm_count[norm_count > thre] <- thre
+        thre_zero_cell <- thre_cell
+        temp <- colSums(norm_count <= 0)
+        f2 <- temp < thre_zero_cell * nrow(norm_count)
+        print(paste(" number of cells before filter:", length(f2)))
+        print(paste(" number of cells after filter:", sum(f2)))
+        norm_count <- count[f1, f2]
+    }
+    if (!identical(normal_cells, "none")) {
+        normal_cells <- intersect(colnames(count)[f2], colnames(count[, 
+            normal_cells]))
+    }
+    if (!identical(cell_cluster, "none")) {
+        cell_cluster <- cell_cluster[f2]
+    }
+    print("Step 2: smoothing read count signals...")
+    if (logFT) {
+        norm_count <- log(sqrt(norm_count) + sqrt(norm_count + 
+            1))
+    }
+    else {
+        norm_count <- log(norm_count + 1)
+    }
+    dlm_sm <- function(y) {
+        model <- dlm::dlmModPoly(order = 1, dV = dlm_dV, dW = dlm_dW)
+        x <- dlm::dlmSmooth(y, model)$s
+        x <- x[2:length(x)]
+        return(x)
+    }
+    dlm_sm_by_chr <- function(y) {
+        bin_ <- bin[f1, ]
+        model <- dlm::dlmModPoly(order = 1, dV = dlm_dV, dW = dlm_dW)
+        x <- 1:length(y)
+        for (i in unique(bin_$chr)) {
+            f_ <- bin_$chr == i
+            if (sum(f_) > 2) {
+                x_ <- dlm::dlmSmooth(y[f_], model)$s
+                x[f_] <- x_[-1]
+            }
+            else {
+                x[f_] <- y[f_]
+            }
+        }
+        return(x)
+    }
+    temp <- apply(norm_count, 2, dlm_sm)
+    norm_count <- exp(temp)
+    norm_count <- edgeR::cpm(norm_count)
+    norm_count <- log(norm_count + 1)
+    q <- quantile(norm_count, probs = c(1:100) * 0.01)
+    thre <- q[99]
+    norm_count[norm_count > thre] <- thre
+    if (use_paired) {
+        norm_count_paired <- norm_count[, 1:ncol(count_paired)]
+        norm_count <- norm_count[, (ncol(count_paired) + 1):ncol(norm_count)]
+    }
+    else {
+        norm_count <- norm_count
+    }
+    print("Step 3: calculating baseline of normal cells...")
+    baseline <- data.frame(n = c(1:nrow(norm_count)))
+    baseline$med_all <- apply(norm_count, 1, median)
+    if (mode == "normal cells") {
+        baseline$med_paired <- apply(norm_count[, normal_cells], 
+            1, median)
+        baseline$selected_normal <- baseline$med_paired
+        print(" Baseline is calculated using median read count of normal cells")
+    }
+    if (mode == "all cells") {
+        baseline$med_paired <- baseline$med_all
+        baseline$selected_normal <- baseline$med_all
+        print(" Baseline is calculated using median read count of all cells")
+    }
+    if (mode == "none" | mode == "matched normal sample") {
+        if (identical(cell_cluster, "none")) {
+            print(" Cell cluster not provided. Assigning cell clusters...")
+            if (cluster_method == "hc") {
+                d <- parallelDist::parallelDist(t(norm_count))
+                hc_re <- hclust(d, method = "ward.D")
+                cluster <- cutree(hc_re, k = K)
+            }
+            if (cluster_method == "kmeans") {
+                temp <- irlba::prcomp_irlba(t(norm_count), n = 50)$x
+                cluster <- kmeans(temp, centers = K)$cluster
+            }
+        }
+        else {
+            cluster <- as.factor(cell_cluster)
+            K <- length(unique(cluster))
+        }
+    }
+    if (mode == "none") {
+        print(" Selecting normal cells using correlation with gene counts...")
+        baseline$med_paired <- bin$gene[f1]
+        corr <- c(1:K)
+        for (i in 1:K) {
+            j <- unique(cluster)[i]
+            if (sum(cluster == j) == 1) {
+                baseline[, i + 3] <- norm_count[, cluster == 
+                  j]
+            }
+            else {
+                baseline[, i + 3] <- apply(norm_count[, cluster == 
+                  j], 1, median)
+            }
+            corr_ <- cor(baseline[, i + 3], baseline$med_paired, 
+                method = "pearson")
+            corr[i] <- corr_
+            if (sum(cluster == j) < thre_ncell) {
+                corr[i] <- -10
+            }
+            print(paste0(" cluster ", j, ";", sum(cluster == 
+                j), "cells;", "corr=", corr_))
+        }
+        i <- which.max(corr)
+        j <- unique(cluster)[i]
+        baseline$selected_normal <- apply(norm_count[, cluster == 
+            j], 1, median)
+        print(paste0(" selected normal: ", sum(cluster == j), 
+            " cells"))
+        print(paste0(" max correlation to gene counts: ", corr[i]))
+        print(" Baseline is calculated using median read count of selected normal cells")
+    }
+    if (mode == "matched normal sample") {
+        print(" Selecting normal cells using paired normal sample...")
+        baseline$med_paired <- apply(norm_count_paired, 1, median)
+        corr <- c(1:K)
+        for (i in 1:K) {
+            j <- unique(cluster)[i]
+            if (sum(cluster == j) == 1) {
+                baseline[, i + 3] <- norm_count[, cluster == 
+                  j]
+            }
+            else {
+                baseline[, i + 3] <- apply(norm_count[, cluster == 
+                  j], 1, median)
+            }
+            corr_ <- cor(baseline[, i + 3], baseline$med_paired, 
+                method = "pearson")
+            corr[i] <- corr_
+            if (sum(cluster == j) < thre_ncell) {
+                corr[i] <- -10
+            }
+            print(paste0(" cluster ", j, ";", sum(cluster == 
+                j), "cells;", "corr=", corr_, ";diff=", mean(abs(baseline$med_paired - 
+                baseline[, i + 3]))))
+        }
+        i <- which.max(corr)
+        j <- unique(cluster)[i]
+        if (use_max_cor_cluster) {
+            baseline$selected_normal <- apply(norm_count[, cluster == 
+                j], 1, median)
+        }
+        else {
+            baseline$selected_normal <- apply(norm_count[, cluster %in% 
+                unique(cluster)[which(corr > thre_correlation)]], 
+                1, median)
+        }
+        print(paste0(" selected normal: ", sum(cluster == j), 
+            " cells"))
+        print(paste0(" max correlation to paired normal: ", corr[i]))
+        if (corr[i] < thre_correlation & use_paired) {
+            baseline$selected_normal <- baseline$med_paired
+            print(" Baseline is calculated using median read count of paired normal sample")
+        }
+        else {
+            print(" Baseline is calculated using median read count of selected normal cells")
+        }
+    }
+    print("Step 4: normalizing against baseline...")
+    norm_count_final <- norm_count - baseline$selected_normal
+    norm_count_final <- t(norm_count_final)
+    norm_count_final <- exp(norm_count_final)
+    rownames(norm_count_final) <- colnames(norm_count)[f2]
+    q <- quantile(norm_count_final, probs = c(1:100) * 0.01)
+    print(paste0("99th percentile: ", q[99]))
+    if (is.numeric(cutoff) & cutoff > 1.5) {
+        thre1 <- cutoff
+    }
+    else {
+        thre1 <- q[99]
+    }
+    norm_count_final[norm_count_final > thre1] <- thre1
+    colnames(norm_count_final) <- paste0(bin$chr, "_", bin$start, 
+        "_", bin$end)[f1]
+    print("Step 5: GC correction...")
+    norm_count <- t(exp(norm_count))
+    colnames(norm_count) <- colnames(norm_count_final)
+    norm_re <- list(copy_ratio = norm_count_final, norm_count = norm_count, 
+        baseline = exp(baseline$selected_normal))
+    tmp <- data.frame(y = norm_re$baseline, gc = bin$gc[f1])
+    loess_re <- loess(data = tmp, formula = y ~ gc)
+    baseline_gc <- loess_re$fitted
+    gc_corrected_cell <- function(y) {
+        tmp <- data.frame(y = y, gc = bin$gc[f1])
+        loess_re <- loess(data = tmp, formula = y ~ gc)
+        y_gc <- loess_re$fitted
+        baseline_gc_corrected <- y_gc * norm_re$baseline/baseline_gc
+        return(baseline_gc_corrected)
+    }
+    if (gc_correction) {
+        baseline_new <- apply(norm_re$norm_count, 1, gc_corrected_cell)
+        norm_re$baseline <- t(baseline_new)
+        norm_re$copy_ratio <- norm_re$norm_count/norm_re$baseline
+    }
+    print("Step 6: saving results...")
+    if (!dir.exists(output_dir)) {
+        dir.create(output_dir)
+    }
+    if (output_name != "none") {
+        saveRDS(norm_re, file.path(output_dir, output_name))
+    }
+    return(norm_re)
+}
+
+```
+
+
+```{r}
+norm_re = readRDS('/projectnb/paxlab/presh/AtaCNV_output/norm_re.rds')
+seg_re <- calculate_CNV_atacnv(norm_count = norm_re$norm_count,
+                                baseline = norm_re$baseline,
+                                output_dir = "/projectnb/paxlab/presh/AtaCNV_output/",
+                                output_name = "CNV_re.rds")
+```
+
+
+
+```{r}
+calculate_CNV_atacnv <- function (norm_count, baseline, BICseq = "default", lambda = 5, 
+    min_interval = 2, smooth = F, downsample = 0, output_dir = "./", 
+    output_name = "CNV_result.rds") 
+{
+    if (BICseq == "default") {
+        if (Sys.info()["sysname"] == "Windows") {
+            BICseq <- system.file("BICseq2", "mbic-seq.exe", 
+                package = "AtaCNV")
+        }
+        else if (Sys.info()["sysname"] == "Linux") {
+            BICseq <- system.file("BICseq2", "MBICseq", package = "AtaCNV")
+            Sys.chmod(BICseq, mode = "0755")
+        }
+    }
+    if (!dir.exists(output_dir)) {
+        dir.create(output_dir)
+    }
+    if (is.vector(baseline)) {
+        baseline <- matrix(data = baseline, nrow = nrow(norm_count), 
+            ncol = ncol(norm_count), byrow = T)
+    }
+    bins <- str2bin(colnames(norm_count))
+    chr_bkp <- bin2chrbkp(bins)
+    print("Running BICseq2 for segmentation...")
+    bkp <- c()
+    lambda <- lambda
+    tmp_dir <- output_dir
+    k <- 0
+    if (downsample > 0) {
+        idx <- sample(1:nrow(norm_count), downsample)
+        norm_count_origin <- norm_count
+        norm_count <- norm_count[idx, ]
+        baseline_origin <- baseline
+        baseline <- baseline[idx, ]
+    }
+    for (i in unique(bins$chr)) {
+        print(i)
+        # if (sum(bins$chr == i) <= 2) {
+        #     next
+        # }
+        norm_count_ <- norm_count[, bins$chr == i]
+        bic_input <- matrix(ncol = 2 * nrow(norm_count_) + 2, 
+            nrow = ncol(norm_count_))
+        bic_input[, 1:2] <- as.matrix(str2bin(colnames(norm_count_))[, 
+            2:3])
+        bic_input[, 2 * c(1:nrow(norm_count_)) + 1] <- t(norm_count_)
+        bic_input[, 2 * c(1:nrow(norm_count_)) + 2] <- t(baseline[, 
+            bins$chr == i])
+        s <- c(1:ncol(bic_input))
+        s[1:2] <- c("start", "end")
+        s[2 * c(1:nrow(norm_count_)) + 1] <- rownames(norm_count_)
+        s[2 * c(1:nrow(norm_count_)) + 2] <- paste0(rownames(norm_count_), 
+            "_ref")
+        colnames(bic_input) <- s
+        write.table(x = bic_input, file = paste0(tmp_dir, i, 
+            ".bin"), quote = F, sep = "\t", row.names = F, col.names = T, 
+            append = F)
+        system(paste0(BICseq, " -i ", paste0(tmp_dir, i, ".bin"), 
+            " -l ", lambda))
+        seg_re <- read.table(paste0(tmp_dir, i, ".bin_seg"), 
+            header = T, sep = "\t")
+        bkp_ <- cumsum(seg_re$binNum)
+        bkp <- merge_bkp(bkp, bkp_ + k, min_interval = 2)
+        k <- k + sum(bins$chr == i)
+    }
+    
+    for (i in unique(bins$chr)) {
+        file.remove(paste0(tmp_dir, i, ".bin"))
+        file.remove(paste0(tmp_dir, i, ".bin_seg"))
+    }
+    bkp <- merge_bkp(chr_bkp, bkp, min_interval = 2)
+    bkp <- sort(bkp)
+    print(paste0("number of breakpoints: ", length(bkp)))
+    if (downsample > 0) {
+        norm_count <- norm_count_origin
+        baseline <- baseline_origin
+    }
+    CNV_re <- matrix(0, nrow = nrow(norm_count), ncol = length(bkp) - 
+        1)
+    for (i in 1:(length(bkp) - 1)) {
+        if (bkp[i] + 1 == bkp[i + 1]) {
+            CNV_re[, i] <- norm_count[, bkp[i + 1]]/baseline[, 
+                bkp[i + 1]]
+            next
+        }
+        temp <- apply(norm_count[, (bkp[i] + 1):bkp[i + 1]], 
+            1, mean)/apply(baseline[, (bkp[i] + 1):bkp[i + 1]], 
+            1, mean)
+        CNV_re[, i] <- temp
+    }
+    CNV <- norm_count
+    for (i in 1:(length(bkp) - 1)) {
+        CNV[, (bkp[i] + 1):bkp[i + 1]] <- matrix(CNV_re[, i], 
+            nrow = nrow(CNV), ncol = bkp[i + 1] - bkp[i])
+    }
+    if (smooth) {
+        print("smoothing...")
+        CNV <- smooth_CNV(CNV)
+    }
+    print("Saving results...")
+    CNV <- round(CNV, digit = 3)
+    result <- list(copy_ratio = CNV, bkp = bkp, CNV_seg = CNV_re)
+    saveRDS(result, file = file.path(output_dir, output_name))
+    return(result)
+}
+
+```
+
+
+
+
+# CopySCAT 
+
+https://github.com/spcdot/CopyscAT/blob/master/copyscat_tutorial.R
+```{r}
+library("devtools")
+
+Sys.setenv("R_REMOTES_NO_ERRORS_FROM_WARNINGS" = "true")
+install_github("spcdot/copyscat")
+
+#load the package
+library(CopyscAT)
+
+
+#load your favourite genome
+library(BSgenome.Hsapiens.UCSC.hg38)
+#use it to save references - this will create a genome chrom.sizes file, a cytobands file and a CpG file
+#NOTE: updated 21-Oct-2021 with a fallback to the REST API
+generateReferences(BSgenome.Hsapiens.UCSC.hg38,genomeText = "hg38",tileWidth = 1e6,outputDir = "~")
+
+```
+
+
+
+```{r}
+##### REGULAR WORKFLOW #####
+#initialize the environment (note: this needs to be done with every session in which you run Copy-scAT)
+initialiseEnvironment(genomeFile="~/hg38_chrom_sizes.tsv",
+                      cytobandFile="~/hg38_1e+06_cytoband_densities_granges.tsv",
+                      cpgFile="~/hg38_1e+06_cpg_densities.tsv",
+                      binSize=1e6,
+                      minFrags=1e4,
+                      cellSuffix=c("-1","-2"),
+                      lowerTrim=0.5,
+                      upperTrim=0.8)
+
+#for this tutorial we will use the sample data included in scData
+#to create your own use the process_fragment_file.py script included in the package and run it on a fragments.tsv.gz file of your choosing
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+

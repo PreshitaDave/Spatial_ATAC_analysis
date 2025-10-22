@@ -1,0 +1,85 @@
+---
+title: "Library installation"
+
+---
+
+This notebook is for making ArchR and Giotto libraries at separate paths for R 4.4.0 
+
+# Creating ArchR library
+
+First load these modules into VS code or interactive session - 
+module load gdal/3.8.4
+module load geos/3.12.1
+module load proj/9.3.1
+module load sqlite3/3.44.2
+module load openblas/0.3.23 
+module load gcc/12.2.0
+module load glpk/5.0
+
+module load R 
+R
+
+
+```{r}
+.libPaths('/projectnb/paxlab/presh/ArchR_libs')
+.libPaths()
+
+if (!requireNamespace("devtools", quietly = TRUE)) install.packages("devtools")
+if (!requireNamespace("BiocManager", quietly = TRUE)) install.packages("BiocManager")
+devtools::install_github("GreenleafLab/ArchR", ref="master", repos = BiocManager::repositories())
+```
+
+```{r}
+library(ArchR)
+
+# RcppArmadillo gave me issues, use this to install!
+install.packages("RcppArmadillo", type = "source",
+  configure.args = c(
+    "--with-lapack",
+    "--with-blas"
+  ))
+```
+
+
+# Creating Giotto library
+
+```{r}
+.libPaths('/projectnb/paxlab/presh/giotto_libs')
+.libPaths()
+
+devtools::install_github("drieslab/GiottoUtils@R4.4.0", force = T)
+remotes::install_github("rspatial/terra")
+packageVersion('terra')
+devtools::install_version("Matrix", version = "1.6-5")
+devtools::install_github("drieslab/GiottoClass@R4.4.0",  force = T)
+devtools::install_github("drieslab/GiottoVisuals@R4.4.0", force = T)
+devtools::install_github("drieslab/Giotto@R4.4.0",  force = T)
+
+library(Giotto)
+
+# Ensure Giotto can access the python env
+set_giotto_python_path(python_path = '/usr3/graduate/preshita/.conda/envs/giotto_env/bin/python', verbose = NULL, initialize = TRUE)
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

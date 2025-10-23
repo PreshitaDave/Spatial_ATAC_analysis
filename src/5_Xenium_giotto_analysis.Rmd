@@ -1,0 +1,406 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+# Creating Xenium object 
+
+```{r}
+.libPaths('/projectnb/paxlab/presh/giotto_libs')
+.libPaths()
+
+library(Giotto)
+library(ggplot2)
+
+# Ensure Giotto can access the python env
+set_giotto_python_path(python_path = '/usr3/graduate/preshita/.conda/envs/giotto_env/bin/python', verbose = NULL, initialize = TRUE)
+
+
+data_path = '/projectnb/paxlab/DATA/DriesSpatial/Xenium/output-XETG00253__0048833__488B__20241217__182301'
+
+
+results_folder <- '/projectnb/paxlab/presh/giotto_output'
+
+instrs <- createGiottoInstructions(
+  show_plot = T,
+  return_plot = FALSE,
+  save_plot = FALSE,
+  save_dir = results_folder
+)
+
+data_path <- '/projectnb/paxlab/DATA/DriesSpatial/Xenium/output-XETG00253__0048833__488B__20241217__182301'
+x <- importXenium(data_path)
+force(x)
+
+xenium488B  <- giotto(instructions = instrs) |>
+  setGiotto(x$load_polys()) |>
+  setGiotto(x$load_expression('/projectnb/paxlab/DATA/DriesSpatial/Xenium/output-XETG00253__0048833__488B__20241217__182301/cell_feature_matrix/')) |>
+  setGiotto(x$load_cellmeta()) |>
+  addSpatialCentroidLocations()
+
+force(xenium488B)
+
+plot(xenium488B@spatial_locs$cell$raw)
+
+
+xenium488B = filterGiotto(xenium488B, feat_det_in_min_cells = 100, 
+                  min_det_feats_per_cell = 20, 
+                  expression_threshold = 1)
+
+norm_name <- 'normalized'
+xenium488B = normalizeGiotto(xenium488B)
+
+```
+
+# Statistics
+```{r}
+
+xenium488B = addStatistics(xenium488B)
+
+
+test <- spatPlot2D(gobject = xenium488B,
+                   show_image = F,
+                   point_alpha = 0.7,
+                   point_size = 0.6,
+                   background_color = 'black',
+                   cell_color = 'nr_feats',
+                   color_as_factor = F,
+                   save_param = list(
+                     save_name = 'nr_feats',
+                     base_width = 15,
+                     base_height = 15))
+
+xenium488B = runPCA(gobject = xenium488B,
+            spat_unit = 'cell',
+            expression_values = norm_name)
+
+screePlot(xenium488B)
+
+```
+
+# UMAP 
+```{r}
+
+# Run and Plot tSNE and UMAP
+xenium488B = runUMAP(xenium488B,
+             expression_values = norm_name,
+             dimensions_to_use = 1:13,
+             spat_unit = 'cell')
+
+plotUMAP(xenium488B,
+         point_size = 0.01,
+         save_param = list(
+           save_name = 'sg_UMAP'))
+
+# Clustering and UMAP cluster visualization
+xenium488B = createNearestNetwork(xenium488B,
+                          dimensions_to_use = 1:13,
+                          expression_values = norm_name,
+                          k = 25,
+                          spat_unit = 'cell')
+xenium488B = doLeidenCluster(xenium488B,
+                     resolution = 0.1,
+                     n_iterations = 10,
+                     spat_unit = 'cell')
+
+# Plot Leiden clusters onto UMAP
+plotUMAP(gobject = xenium488B,
+         spat_unit = 'cell',
+         # select_cells = healthy_cancer,
+         cell_color = 'leiden_clus',
+         show_legend = TRUE,
+         point_size = 0.01,
+         point_shape = 'no_border',
+         save_param = list(save_name = 'sg_umap_leiden'))
+
+xenium_crop <- subsetGiottoLocs(xenium488B, x_min = 5000, x_max = 10600)
+
+my_spatPlot <- spatPlot2D(gobject = xenium_crop,
+                          spat_unit = 'cell',
+                          cell_color = 'leiden_clus',
+                          point_size = 0.025,
+                          point_shape = 'no_border',
+                          # color_as_factor = F,
+                          show_legend = TRUE,point_border_stroke = 0,
+                          background_color = 'black', show_plot = T,
+                          save_param = list(
+                            save_name = 'sg_spat_leiden',
+                            base_width = 15,
+                            base_height = 15))
+
+```
+
+
+
+
+
+```{r}
+
+# Testing clustering with the spatial ATACseq dataset #########################
+test2 = readRDS('/Users/preshitadave/Downloads/saveAtacgiotto.rds')
+
+sg <- test2$Deepseq
+
+
+# we should filter out more cells since we know that the borders are not great 
+int.cells.atac = read.csv('/Users/preshitadave/Downloads/int_cells_trim_atac.csv', header = T, row.names = 1)
+int.cells.atac =int.cells.atac$x
+
+sg2 = subsetGiotto(
+  sg,
+  spat_unit = ":all:", feat_type = ":all:", 
+  cell_ids = int.cells.atac
+)
+
+
+
+sg2 = filterGiotto(sg2, feat_det_in_min_cells = 100,
+                  spat_unit = 'cell',
+                  feat_type = 'atac',
+                  expression_values = 'GeneScoreMatrix',
+                  min_det_feats_per_cell = 20, 
+                  expression_threshold = 1)
+
+
+norm_name <- 'normalized'
+activeSpatUnit(sg2) <- 'cell'
+activeFeatType(sg2) <- 'atac'
+sg2 = normalizeGiotto(sg2, norm_methods = 'standard', name = norm_name, expression_values = 'GeneScoreMatrix')
+# Statistics
+sg2 = addStatistics(sg2, expression_values = norm_name)
+
+
+test <- spatPlot2D(gobject = sg2,
+                   show_image = F,
+                   point_alpha = 0.7,
+                   point_size = 0.6,
+                   background_color = 'black',
+                   cell_color = 'nr_feats',
+                   color_as_factor = F,
+                   save_param = list(
+                     save_name = 'nr_feats',
+                     base_width = 15,
+                     base_height = 15))
+
+sg2 <- calculateHVF(gobject = sg2, )
+
+sg2 = runPCA(gobject = sg2,
+            spat_unit = 'cell',
+            expression_values = norm_name)
+
+screePlot(sg2)
+
+# Run and Plot tSNE and UMAP
+sg2 = runUMAP(sg2,
+             expression_values = norm_name,
+             dimensions_to_use = 1:13,
+             spat_unit = 'cell')
+
+plotUMAP(sg2,
+         point_size = 0.01,
+         save_param = list(
+           save_name = 'sg_UMAP'))
+
+# Clustering and UMAP cluster visualization
+sg2 = createNearestNetwork(sg2,
+                          dimensions_to_use = 1:13,
+                          expression_values = norm_name,
+                          k = 25,
+                          spat_unit = 'cell')
+sg2 = doLeidenClusterIgraph(sg2,
+                     resolution = 0.4,
+                     n_iterations = 10,
+                     spat_unit = 'cell')
+
+# Plot Leiden clusters onto UMAP
+plotUMAP(gobject = sg2,
+         spat_unit = 'cell',
+         # select_cells = healthy_cancer,
+         cell_color = 'leiden_clus',
+         show_legend = TRUE,
+         point_size = 0.01,
+         point_shape = 'no_border',
+         save_param = list(save_name = 'sg_umap_leiden'))
+
+my_spatPlot <- spatPlot2D(gobject = sg2,
+                          spat_unit = 'cell',
+                          cell_color = 'leiden_clus',
+                          point_size = 0.025,
+                          point_shape = 'no_border',
+                          # color_as_factor = F,
+                          show_legend = TRUE,point_border_stroke = 0,
+                          background_color = 'black',
+                          save_param = list(
+                            save_name = 'sg_spat_leiden',
+                            base_width = 15,
+                            base_height = 15))
+```
+
+
+# Align using Giotto's alignment tool
+```{r}
+atac_align <- spatPlot2D(gobject = sg2,
+                          spat_unit = 'cell',
+                          cell_color = 'leiden_clus',
+                          point_size = 0.025,
+                          point_shape = 'no_border',
+                          # color_as_factor = F,
+                          show_legend = TRUE,point_border_stroke = 0,
+                          background_color = 'black',
+                         return_plot = T,
+                          save_param = list(
+                            save_name = 'sg_spat_leiden',
+                            base_width = 15,
+                            base_height = 15))
+
+xen_align <- spatPlot2D(gobject = xenium488B,
+                         spat_unit = 'cell',
+                         cell_color = 'leiden_clus',
+                         point_size = 0.025,
+                         point_shape = 'no_border',
+                         # color_as_factor = F,
+                         show_legend = TRUE,
+                        point_border_stroke = 0,
+                         background_color = 'black',
+                        show_plot = T,
+                        return_plot = T,
+                         save_param = list(
+                           save_name = 'sg_spat_leiden',
+                           base_width = 15,
+                           base_height = 15))
+
+points <- interactiveLandmarkSelection(xen_align, atac_align)
+force(points)
+
+# > points
+# [[1]]
+#            x          y
+# 1   5990.106 -1935.6520
+# 2   6522.827 -2184.6869
+# 3   6640.441 -2120.6494
+# 4   6931.016 -2376.7996
+# 5  10203.409 -1211.8988
+# 6  10322.300 -2346.0708
+# 7  10414.771 -2169.8887
+# 8  10487.427 -2390.1163
+# 9   9747.658 -1085.2680
+# 10  6438.514  -859.5347
+# 11  7620.823 -1145.8305
+# 12  8334.172 -1206.3931
+# 13  8704.056 -1134.8192
+# 14  5474.172  -991.6713
+# 15  6009.184 -1035.7168
+# 16  5262.810 -1938.6498
+# 
+# [[2]]
+#            x        y
+# 1  1532.0432 5940.063
+# 2  2230.2891 5614.557
+# 3  2368.3145 5636.750
+# 4  2774.2714 5340.835
+# 5  6961.6426 7271.680
+# 6  7222.5319 5769.912
+# 7  7401.0351 5984.450
+# 8  7455.9592 5732.923
+# 9  6432.9985 7367.853
+# 10 2059.6701 7523.208
+# 11 3515.1578 7057.142
+# 12 4496.9254 7064.540
+# 13 4998.1074 7212.497
+# 14  810.1477 7397.444
+# 15 1510.4295 7316.068
+# 16  542.3929 5962.257
+
+affine_mtx <- calculateAffineMatrixFromLandmarks(
+  source = points[[2]], # from slice 2
+  target = points[[1]] # from slice 1
+)
+
+# > affine_mtx
+#             x          y          
+# x  0.75980146 0.03701443  4618.899
+# y -0.03802109 0.70688574 -6088.528
+#    0.00000000 0.00000000     1.000
+
+force(affine_mtx)
+
+sg_affine <- affine(sg2, y = affine_mtx, pre_multiply = T)
+
+# Plot the first layer
+terra::plot(xenium488B@spatial_info$cell)
+
+# Add the second layer with terra-specific parameters
+terra::points(sg_affine@spatial_locs$cell$raw@coordinates, 
+            col = "red",   cex = 0.3)        
+```
+
+
+# Differential gene expression 
+
+## Gini markers 
+
+```{r}
+gini_markers <- findMarkers_one_vs_all(gobject = xenium488B,
+                                       method = "gini",
+                                       expression_values = "normalized",
+                                       cluster_column = "leiden_clus",
+                                       min_feats = 10)
+
+topgenes_gini <- gini_markers[, head(.SD, 5), by = "cluster"]$feats
+```
+
+
+```{r}
+gini_markers2 = gini_markers[gini_markers$feats %in% topgenes_gini, ]
+
+plotMetaDataHeatmap(xenium488B, 
+                    selected_feats = unique(topgenes_gini),
+                    metadata_cols = "leiden_clus",
+                    x_text_size = 10, y_text_size = 10)
+```
+
+```{r}
+dimFeatPlot2D(xenium488B, 
+              expression_values = "scaled",
+              feats = (unique(topgenes_gini)),
+              cow_n_col = 5, 
+              point_size = 1,
+              save_param = list(base_width = 15, base_height = 20))
+
+```
+
+## scran markers
+
+```{r}
+scran_markers <- findMarkers_one_vs_all(gobject = xenium488B,
+                                       method = "scran",
+                                       expression_values = "normalized",
+                                       cluster_column = "leiden_clus",
+                                       min_feats = 10)
+
+topgenes_scran <- scran_markers[, head(.SD, 5), by = "cluster"]$feats
+```
+
+
+```{r}
+plotMetaDataHeatmap(xenium488B, 
+                    selected_feats = unique(topgenes_scran),
+                    metadata_cols = "leiden_clus",
+                    x_text_size = 10, y_text_size = 10)
+```
+
+```{r}
+dimFeatPlot2D(xenium488B, 
+              expression_values = "scaled",
+              feats = sort(unique(topgenes_scran)),
+              cow_n_col = 5, 
+              point_size = 1,
+              save_param = list(base_width = 20, base_height = 20))
+```
+
+
+
+
+
+
+

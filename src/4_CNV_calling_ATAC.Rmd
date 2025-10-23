@@ -40,11 +40,11 @@ library(fastcluster)
 hc <- fastcluster::hclust(dist_mat, method = "ward.D")
 
 # Plot dendrogram
-plot(hc, main="Hierarchical Clustering of Cells", xlab="Cells", sub="", cex=0.6)
+# plot(hc, main="Hierarchical Clustering of Cells", xlab="Cells", sub="", cex=0.6)
 ```
 
 ```{r}
-clusters <- cutree(hc, k = 12) 
+clusters <- cutree(hc, k = 6) 
 
 cluster_counts <- table(clusters)
 print(cluster_counts)
@@ -52,9 +52,9 @@ print(cluster_counts)
 # Basic dendrogram with colored branches by cluster
 library(dendextend)
 dend <- as.dendrogram(hc)
-dend_colored <- color_branches(dend, k = 12)
+dend_colored <- color_branches(dend, k = 6)
 
-plot(dend_colored, main = "Hierarchical Clustering Dendrogram (15 clusters)", ylab = "Height")
+# plot(dend_colored, main = "Hierarchical Clustering Dendrogram (12 clusters)", ylab = "Height")
 
 # Optionally, visualize cluster assignments on a heatmap
 library(pheatmap)
@@ -67,11 +67,14 @@ rownames(annotation) <- rownames(t(cnv_calls2))
 cluster_levels <- sort(unique(annotation$Cluster))
 cluster_colors <- setNames(RColorBrewer::brewer.pal(length(cluster_levels), "Set3"), cluster_levels)
 annotation_colors <- list(Cluster = cluster_colors)
+```
 
 
-my_heatmap <-pheatmap(t(cnv_calls2), annotation_row = annotation, 
-         show_rownames = FALSE, cluster_rows = hc, cluster_cols = FALSE, cutree_rows = 4,
-         main = "Cell-by-Bin Heatmap, colored by 4 clusters",
+##Plotting the clusters in the heatmap 
+```{r}
+my_heatmap <-pheatmap(t(cnv_calls2), annotation_row = annotation,
+         show_rownames = FALSE, cluster_rows = hc, cluster_cols = FALSE, cutree_rows = 6,
+         main = "Cell-by-Bin Heatmap, colored by 6 clusters",
          annotation_colors = annotation_colors)
 
 
@@ -95,10 +98,12 @@ save_pheatmap <- function(x, filename, width=16, height=8){
   }
 }
 
-save_pheatmap(my_heatmap, "/projectnb/paxlab/presh/Data/epianeufinder/cnv_clust_pheatmap.png")
+
+save_pheatmap(my_heatmap, "/projectnb/paxlab/presh/Data/epianeufinder/cnv_6clust_pheatmap.png")
 dev.off()
 ```
 
+##To determine the number of clusters 
 ```{r}
 last_heights <- tail(hc$height, 30)
 num_clusters <- 31:2 #how many clusters do we want to evaluate?
@@ -111,6 +116,44 @@ plot(num_clusters, last_heights, type = 'o', col = 'blue', pch = 16,
 #Add a red dot at the elbow point
 points(num_clusters[28], last_heights[28], col = 'red', pch = 16)
 ```
+
+
+##Plot clusters spatially 
+```{r}
+.libPaths('/projectnb/paxlab/presh/ArchR_libs')
+.libPaths()
+
+library(ArchR)
+
+tiss_488B.proj = loadArchRProject(path = "/projectnb/paxlab/presh/Data", force = FALSE, showLogo = TRUE)
+
+cluster.meta = as.data.frame(tiss_488B.proj@cellColData)
+cluster.meta$barcode = gsub('Deepseq#', 'cell-',rownames(cluster.meta))
+
+# add cluster coordinates from hclust 
+cluster.meta2 = merge(cluster.meta, annotation, by.x = 'barcode', by.y = 'row.names')
+# cluster.meta2$Cluster = as.character(cluster.meta2$Cluster)
+
+.libPaths("/usr3/graduate/preshita/R/x86_64-pc-linux-gnu-library/4.4")
+library(ggplot2)
+
+annotation_colors_cluster_palette <- c(
+  "1" = "#8DD3C7", "2" = "#FFFFB3", "3" = "#BEBADA", "4" = "#FB8072", 
+  "5" = "#80B1D3", "6" = "#FDB462"
+)
+
+ggplot(cluster.meta2, aes(x = x_spatial, y = y_spatial, color = Cluster)) +
+  geom_point(size = 0.9) +
+  theme_classic() +
+  scale_color_manual(values = annotation_colors_cluster_palette) 
+
+```
+
+
+
+
+
+
 
 
 

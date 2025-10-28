@@ -60,6 +60,44 @@ library(Giotto)
 # Ensure Giotto can access the python env
 set_giotto_python_path(python_path = '/usr3/graduate/preshita/.conda/envs/giotto_env/bin/python', verbose = NULL, initialize = TRUE)
 
+
+# Installing python env 
+Giotto::installGiottoEnvironment()
+
+reticulate::py_install(
+    pip = TRUE,
+    envname = 'giotto_env',
+    packages = c(
+        "scanpy"
+    )
+)
+
+# install another environment with py 3.8 for cellpose
+# reticulate::conda_create(envname = "giotto_cellpose",
+#                          python_version = 3.8)
+# this command not working so doing through conda
+
+# do in linux
+# conda create -n giotto_cellpose python=3.8
+
+# Restart R session 
+reticulate::use_condaenv('giotto_cellpose')
+reticulate::py_install(
+  pip = TRUE,
+  envname = 'giotto_cellpose',
+  packages = c(
+    "pandas",
+    "networkx",
+    "python-igraph",
+    "leidenalg",
+    "scikit-learn",
+    "cellpose",
+    "smfishhmrf",
+    'tifffile',
+    'scikit-image'
+  )
+)
+
 ```
 
 

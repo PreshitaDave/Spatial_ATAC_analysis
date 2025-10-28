@@ -9,9 +9,68 @@ Did CNV calling using these 2 tools
 # Epianeufinder
 ## Running the tool
 
+Doing this in VS code
+
+###For deepseq data - 
+```{bash}
+library(epiAneufinder)
+
+cd /projectnb/paxlab/presh/Data
+awk 'NR==FNR{a[$1]; next} $4 in a' barcodes.txt fragments.sort.bed > fragments.sort.filtered.bed
+
+epiAneufinder(input="/projectnb/paxlab/presh/Data/fragments.sort.filtered.bed", #Enter path to your fragments.tsv file or the folder containing bam files
+              outdir="/projectnb/paxlab/presh/Data/epianeufinder/atac_results", #Path to the directory where results should be written 
+              blacklist="/projectnb/paxlab/presh/Data/epianeufinder/hg38-blacklist.v2.bed", #Path to bed file that contains the blacklisted regions of your genome
+              windowSize=1e6, 
+              genome="BSgenome.Hsapiens.UCSC.hg38", #Substitute with relevant BSgenome
+              exclude=c('chrX','chrY','chrM'), 
+              reuse.existing=TRUE,
+              title_karyo="Karyogram of sample data", 
+              ncores=4,
+              minFrags=20000,
+              minsizeCNV=0,
+              k=4,
+              plotKaryo=TRUE)
+```
+
+
+###For lowseq data - 
+
+Need to filter out the gz file /projectnb/paxlab/DATA/DriesSpatial/Atlasxomics/D1942_lowseq/fragments.tsv.gz 
+
+zcat /projectnb/paxlab/DATA/DriesSpatial/Atlasxomics/D1942_lowseq/fragments.tsv.gz  | awk 'NR==FNR{a[$1]; next} $4 in a' /projectnb/paxlab/presh/Data/barcodes.txt - > 	/projectnb/paxlab/presh/Data/lowseq.fragments.sort.filtered.bed
+
+
+cd /projectnb/paxlab/presh/Data
+module load R 
+R
+
+```{r}
+library(epiAneufinder)
+
+epiAneufinder(input="/projectnb/paxlab/presh/Data/lowseq.fragments.sort.filtered.bed", #Enter path to your fragments.tsv file or the folder containing bam files
+              outdir="/projectnb/paxlab/presh/Data/epianeufinder/lowseq_atac_results", #Path to the directory where results should be written 
+              blacklist="/projectnb/paxlab/presh/Data/epianeufinder/hg38-blacklist.v2.bed", #Path to bed file that contains the blacklisted regions of your genome
+              windowSize=1e6, 
+              genome="BSgenome.Hsapiens.UCSC.hg38", #Substitute with relevant BSgenome
+              exclude=c('chrX','chrY','chrM'), 
+              reuse.existing=TRUE,
+              title_karyo="Karyogram of lowseq data", 
+              ncores=4,
+              minFrags=20000,
+              minsizeCNV=0,
+              k=4,
+              plotKaryo=TRUE)
+```
+
+
+
+
 
 
 ## Reading in results 
+
+### For deepseq - 
 ```{r}
 options(scipen = 999)
 library(data.table)
@@ -70,7 +129,7 @@ annotation_colors <- list(Cluster = cluster_colors)
 ```
 
 
-##Plotting the clusters in the heatmap 
+####Plotting the clusters in the heatmap 
 ```{r}
 my_heatmap <-pheatmap(t(cnv_calls2), annotation_row = annotation,
          show_rownames = FALSE, cluster_rows = hc, cluster_cols = FALSE, cutree_rows = 6,
@@ -103,7 +162,7 @@ save_pheatmap(my_heatmap, "/projectnb/paxlab/presh/Data/epianeufinder/cnv_6clust
 dev.off()
 ```
 
-##To determine the number of clusters 
+####To determine the number of clusters 
 ```{r}
 last_heights <- tail(hc$height, 30)
 num_clusters <- 31:2 #how many clusters do we want to evaluate?
@@ -118,7 +177,7 @@ points(num_clusters[28], last_heights[28], col = 'red', pch = 16)
 ```
 
 
-##Plot clusters spatially 
+####Plot clusters spatially 
 ```{r}
 .libPaths('/projectnb/paxlab/presh/ArchR_libs')
 .libPaths()
@@ -148,6 +207,23 @@ ggplot(cluster.meta2, aes(x = x_spatial, y = y_spatial, color = Cluster)) +
   scale_color_manual(values = annotation_colors_cluster_palette) 
 
 ```
+
+
+#### Making a barplot of the clusters between ArchR and hclust 
+
+Subclone by ATAC cluster
+```{r}
+
+```
+
+
+
+
+### For lowseq - 
+
+
+
+
 
 
 

@@ -394,6 +394,9 @@ dimFeatPlot2D(xenium488B,
 
 # Gene set co-regulation analysis
 
+Have to run this in R 4.5!!!!
+fgsea will not run otherwise 
+
 Date: 2025-12-02
 
 Ref: https://bioconductor.org/packages/release/bioc/vignettes/fgsea/inst/doc/geseca-tutorial.html
@@ -543,8 +546,9 @@ xobj.seu.crop <- ScaleData(xobj.seu.crop, verbose = FALSE)
 
 # Perform PCA and UMAP dimensionality reduction
 xobj.seu.crop <- RunPCA(xobj.seu.crop, verbose = FALSE)
-# xobj.seu.crop <- RunUMAP(xobj.seu.crop, dims = 1:20)
-
+xobj.seu.crop <- RunUMAP(xobj.seu.crop, dims = 1:20)
+xobj.seu.crop <- FindNeighbors(xobj.seu.crop, reduction = "pca", dims = 1:30)
+xobj.seu.crop <- FindClusters(xobj.seu.crop, resolution = 0.2)
 
 # xobj.seu.crop@reductions$pca <- NULL
 # xobj.seu.crop@assays$Xenium@layers$scale.data <- NULL
@@ -552,10 +556,18 @@ xobj.seu.crop <- RunPCA(xobj.seu.crop, verbose = FALSE)
 
 
 ImageDimPlot(xobj.seu.crop, 
-                   dark.background = FALSE, size = 0.5, 
+                   dark.background = T, size = 0.5, 
                    flip_xy = F)  + ggplot2::coord_flip() + ggplot2::scale_x_reverse()
 
+
+DimPlot(xobj.seu.crop,  raster = FALSE, pt.size = 0.5, stroke.size = 0.0) + 
+     ggplot2::coord_fixed()
+
 ```
+
+Let's fix resolution 0.2 
+
+
 
 
 ```{r}
@@ -574,12 +586,35 @@ gsets <- split(gsets$gene_symbol, gsets$gs_name)
 gesecaRes <- geseca(gsets, E, minSize = 15, maxSize = 500, center = FALSE, eps = 1e-100)
 
 head(gesecaRes, 10)
+
+topPathways <- gesecaRes[, pathway] |> head(4)
+titles <- sub("HALLMARK_", "", topPathways)
+```
+
+
+
+```{r}
+topPathways <- gesecaRes[, pathway][9:12]
+titles <- sub("HALLMARK_", "", topPathways)
+
+plots <- fgsea::plotCoregulationProfileReduction(
+    gsets[topPathways], xobj.seu.crop, 
+    reduction = "umap", title = titles,
+    raster = TRUE, raster.dpi = c(500, 500),
+    pt.size = 2.5
+)
+
+plots <- lapply(plots, function(p){
+    p + ggplot2::theme(plot.title = element_text(hjust=0), text = element_text(size=8))
+})
+
+
+cowplot::plot_grid(plotlist = plots, ncol = 2)
 ```
 
 
 ```{r}
-topPathways <- gesecaRes[, pathway] |> head(4)
-titles <- sub("HALLMARK_", "", topPathways)
+
 
 imagePlots <- plotCoregulationProfileImage(
     gsets[topPathways], object = xobj.seu.crop, 
@@ -599,158 +634,38 @@ cowplot::plot_grid(plotlist = imagePlots, ncol = 2)
 
 ```
 
+## Marker analysis 
 ```{r}
-install.packages('fgsea')
+xenium.markers <- FindAllMarkers(xobj.seu.crop, only.pos = TRUE)
 
-library(fgsea)
-packageVersion('fgsea')
-   package_path <- system.file(package = "fgsea")
-```
+library(dplyr)
 
-```{r}
-plotCoregulationProfileSpatial_final <- function (
-    pathway,
-    object, # This is your Seurat v5 object
-    title = NULL,
-    assay = DefaultAssay(object), # The name of the assay (e.g., "Xenium")
-    colors = c("darkblue", "lightgrey", "darkred"),
-    guide = "colourbar"
-) {
-    stopifnot(requireNamespace("Seurat", quietly = TRUE))
-    stopifnot(requireNamespace("SeuratObject", quietly = TRUE))
-    stopifnot(requireNamespace("scales", quietly = TRUE))
-    stopifnot(requireNamespace("ggplot2", quietly = TRUE))
-    stopifnot(requireNamespace("Matrix", quietly = TRUE)) # Ensure Matrix package is loaded
+sel.markers = xenium.markers %>%
+    group_by(cluster) %>%
+    dplyr::filter(avg_log2FC > 1 & pct.1 > 0.6 & pct.2 < 0.4)
 
-    # --- 1. Handle lists of pathways (recursive call) ---
-    if (is.list(pathway)) {
-        if (is.null(title)) {
-            titles <- names(pathway)
-        } else {
-            if (length(title) != length(pathway)) {
-                stop("Length of the specified titles does not match count of pathways")
-            }
-            titles <- title
-        }
-        ps <- lapply(seq_along(pathway), function(i) plotCoregulationProfileSpatial_final( # Call final version
-            pathway[[i]],
-            object = object,
-            title = titles[i],
-            assay = assay,
-            colors = colors,
-            guide = guide
-        ))
-        names(ps) <- names(pathway)
-        return(ps)
-    }
+FeaturePlot(xobj.seu.crop, features = c("MS4A1", "TIGIT", "CD3E", "EPCAM", "CLEC14A", "FCGR3A", "LILRB4", "WNT2",
+    "CD8A"))
 
-    # --- 2. Call the pathway scoring function to add scores to assay's 'data' layer ---
-    # This function creates a new feature named "pathway" in the 'data' layer
-    obj2 <- addGesecaScores_v2(list(pathway = pathway), object,
-        assay = assay, scale = TRUE)
 
-    # --- 3. Plotting using Seurat::SpatialFeaturePlot ---
-    # Since "pathway" is now added to the assay's 'data' layer,
-    # SpatialFeaturePlot should find it as a feature.
-    # 'slot = "data"' explicitly tells it to look in that layer.
-    p <- Seurat::SpatialFeaturePlot(
-            obj2,
-            features = "pathway", # This is the name of the feature added to the 'data' layer
-            combine = FALSE,
-            image.alpha = 0,
-            slot = "data" # Explicitly tell SpatialFeaturePlot to look in the 'data' layer
-        )[[1]]
-
-    # --- 4. Custom plot styling (ggplot2 compatible) ---
-    p$scales$scales[p$scales$find("fill")] <- NULL # Remove default fill scale
-    suppressMessages({
-        p2 <- p + scale_fill_gradientn(limits = c(-3, 3), breaks = c(-3,
-            0, 3), oob = scales::squish, colors = colors, guide = guide,
-            name = "z-score") + theme(legend.position = theme_get()$legend.position)
-    })
-    if (!is.null(title)) {
-        p2 <- p2 + ggtitle(title)
-    }
-    return(p2) # Return the final plot
-}
-
+FeaturePlot(xobj.seu.crop, features = c("ESR1", "ERBB2", "PGR"))
 ```
 
 
-```{r}
-# Corrected and robust addGesecaScores_v2 function
-addGesecaScores_v2 <- function(pathways,
-                               object,
-                               assay = DefaultAssay(object),
-                               prefix = "",
-                               scale = FALSE) {
-    stopifnot(requireNamespace("Seurat", quietly = TRUE))
-    stopifnot(requireNamespace("SeuratObject", quietly = TRUE))
-    stopifnot(requireNamespace("Matrix", quietly = TRUE)) # Ensure Matrix package is loaded here too
-
-    res <- object # Work on a copy of the object
-
-    # --- 1. Extract Scaled Data (source for scoring) ---
-    E <- GetAssayData(object, assay = assay, layer = "scale.data")
-    if (is.null(E) || dim(E)[1] == 0) {
-        stop(paste0("Scaled data (layer 'scale.data') for assay '", assay, "' is empty or missing. Cannot calculate scores."))
-    }
-
-    # --- 2. Get Current Data Layer (target for adding score) ---
-    current_data_layer <- GetAssayData(object, assay = assay, layer = "data")
-    if (is.null(current_data_layer) || dim(current_data_layer)[1] == 0) {
-        warning(paste0("Layer 'data' for assay '", assay, "' is empty or missing. Pathway score will be the only entry in this layer."))
-        # If data layer is empty, create a dummy empty sparse matrix with correct dimensions/names
-        current_data_layer <- Matrix::Matrix(0, nrow = 0, ncol = ncol(E), dimnames = list(NULL, colnames(E)), sparse = TRUE)
-    }
-
-    # --- 3. Get Canonical Cell Order ---
-    object_cells_order <- colnames(object)
-    if (!all(colnames(E) == object_cells_order)) {
-        stop("Cell order mismatch between assay 'scale.data' and object. Please ensure consistent cell ordering.")
-    }
-    if (!all(colnames(current_data_layer) == object_cells_order)) {
-        stop("Cell order mismatch between assay 'data' and object. Please ensure consistent cell ordering.")
-    }
+## barplot 
 
 
-    for (i in seq_along(pathways)) {
-        pathway_name_orig <- names(pathways)[i]
-        target_feature_name <- paste0(prefix, pathway_name_orig)
-        pathway_genes <- pathways[[i]]
-
-        pathway_genes_in_E <- intersect(unique(pathway_genes), rownames(E))
-
-        if (length(pathway_genes_in_E) == 0) {
-            warning(paste0("No valid genes found for pathway '", pathway_name_orig, "' in assay '", assay, "'. Score will be all zeros."))
-            raw_score <- rep(0, ncol(E))
-        } else {
-            raw_score <- colSums(E[pathway_genes_in_E, , drop = FALSE]) / sqrt(length(pathway_genes_in_E))
-        }
-
-        scaled_score_vector <- scale(raw_score, center = TRUE, scale = scale)
-
-        final_score_aligned <- setNames(as.numeric(scaled_score_vector)[object_cells_order], object_cells_order)
 
 
-        # --- FIX IS HERE: Changed Matrix() to Matrix::Matrix() ---
-        new_feature_row <- Matrix::Matrix(final_score_aligned, nrow = 1, ncol = ncol(current_data_layer),
-                                  dimnames = list(target_feature_name, colnames(current_data_layer)),
-                                  sparse = TRUE) # Preserve sparsity
 
-        if (!(target_feature_name %in% rownames(current_data_layer))) {
-            current_data_layer <- rbind(current_data_layer, new_feature_row)
-        } else {
-            current_data_layer[target_feature_name, ] <- new_feature_row[1, ]
-        }
 
-        res@meta.data[[target_feature_name]] <- final_score_aligned
-    }
 
-    res <- SetAssayData(res, assay = assay, layer = "data",
-                        new.data = as(current_data_layer, class(current_data_layer)[1]))
 
-    return(res)
-}
-```
+
+
+
+
+
+
+
 

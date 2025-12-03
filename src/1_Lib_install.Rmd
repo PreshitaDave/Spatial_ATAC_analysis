@@ -48,12 +48,16 @@ install.packages("RcppArmadillo", type = "source",
 .libPaths()
 
 devtools::install_github("drieslab/GiottoUtils@R4.4.0", force = T)
-remotes::install_github("rspatial/terra")
-packageVersion('terra')
+
+# If terra gives error run the 2 lines below 
+# unlink("/projectnb/paxlab/presh/giotto_libs/00LOCK-terra", recursive = TRUE)
+# remotes::install_github("rspatial/terra")
+packageVersion('terra') # need 1.8.7 
 devtools::install_version("Matrix", version = "1.6-5")
 devtools::install_github("drieslab/GiottoClass@R4.4.0",  force = T)
 devtools::install_github("drieslab/GiottoVisuals@R4.4.0", force = T)
 devtools::install_github("drieslab/Giotto@R4.4.0",  force = T)
+
 
 library(Giotto)
 

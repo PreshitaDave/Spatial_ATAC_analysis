@@ -1,0 +1,318 @@
+
+           ___      .______        ______  __    __  .______      
+          /   \     |   _  \      /      ||  |  |  | |   _  \     
+         /  ^  \    |  |_)  |    |  ,----'|  |__|  | |  |_)  |    
+        /  /_\  \   |      /     |  |     |   __   | |      /     
+       /  _____  \  |  |\  \\___ |  `----.|  |  |  | |  |\  \\___.
+      /__/     \__\ | _| `._____| \______||__|  |__| | _| `._____|
+    
+Logging With ArchR!
+
+Start Time : 2025-11-01 09:31:14.772494
+
+------- ArchR Info
+
+ArchRThreads = 14
+ArchRGenome = Hg38
+
+------- System Info
+
+Computer OS = unix
+Total Cores = 28
+
+------- Session Info
+
+R version 4.4.0 (2024-04-24)
+Platform: x86_64-pc-linux-gnu
+Running under: AlmaLinux 8.10 (Cerulean Leopard)
+
+Matrix products: default
+BLAS/LAPACK: FlexiBLAS NETLIB;  LAPACK version 3.11.0
+
+Random number generation:
+ RNG:     L'Ecuyer-CMRG 
+ Normal:  Inversion 
+ Sample:  Rejection 
+ 
+locale:
+ [1] LC_CTYPE=en_US.UTF-8       LC_NUMERIC=C               LC_TIME=en_US.UTF-8        LC_COLLATE=en_US.UTF-8    
+ [5] LC_MONETARY=en_US.UTF-8    LC_MESSAGES=en_US.UTF-8    LC_PAPER=en_US.UTF-8       LC_NAME=C                 
+ [9] LC_ADDRESS=C               LC_TELEPHONE=C             LC_MEASUREMENT=en_US.UTF-8 LC_IDENTIFICATION=C       
+
+time zone: America/New_York
+tzcode source: system (glibc)
+
+attached base packages:
+ [1] parallel  stats4    grid      stats     graphics  grDevices utils     datasets  methods   base     
+
+other attached packages:
+ [1] uwot_0.2.2                        nabor_0.5.0                       Seurat_5.0.3                     
+ [4] SeuratObject_5.2.0                sp_2.1-4                          BSgenome.Hsapiens.UCSC.hg38_1.4.5
+ [7] BSgenome_1.74.0                   rtracklayer_1.66.0                BiocIO_1.16.0                    
+[10] Biostrings_2.74.1                 XVector_0.46.0                    rhdf5_2.50.2                     
+[13] SummarizedExperiment_1.36.0       Biobase_2.66.0                    RcppArmadillo_15.0.1-1           
+[16] Rcpp_1.0.13                       Matrix_1.7-0                      GenomicRanges_1.58.0             
+[19] GenomeInfoDb_1.42.3               IRanges_2.40.1                    S4Vectors_0.44.0                 
+[22] BiocGenerics_0.52.0               sparseMatrixStats_1.18.0          MatrixGenerics_1.18.1            
+[25] matrixStats_1.4.1                 data.table_1.16.2                 stringr_1.5.1                    
+[28] plyr_1.8.9                        magrittr_2.0.3                    ggplot2_4.0.0                    
+[31] gtable_0.3.6                      gtools_3.9.5                      gridExtra_2.3                    
+[34] usethis_3.0.0                     ArchR_1.0.3                       readr_2.1.5                      
+
+loaded via a namespace (and not attached):
+  [1] RcppAnnoy_0.0.22         splines_4.4.0            later_1.3.2              bitops_1.0-9            
+  [5] tibble_3.2.1             polyclip_1.10-7          XML_3.99-0.17            fastDummies_1.7.4       
+  [9] lifecycle_1.0.4          globals_0.16.3           lattice_0.22-6           MASS_7.3-60.2           
+ [13] plotly_4.10.4            rmarkdown_2.30           yaml_2.3.8               httpuv_1.6.15           
+ [17] sctransform_0.4.2        spam_2.11-1              spatstat.sparse_3.1-0    reticulate_1.39.0       
+ [21] cowplot_1.1.3            pbapply_1.7-2            RColorBrewer_1.1-3       abind_1.4-8             
+ [25] zlibbioc_1.52.0          Rtsne_0.17               purrr_1.0.2              RCurl_1.98-1.16         
+ [29] GenomeInfoDbData_1.2.13  ggrepel_0.9.6            irlba_2.3.5.1            listenv_0.9.1           
+ [33] spatstat.utils_3.1-0     goftest_1.2-3            RSpectra_0.16-2          spatstat.random_3.3-2   
+ [37] fitdistrplus_1.2-1       parallelly_1.38.0        leiden_0.4.3.1           codetools_0.2-20        
+ [41] DelayedArray_0.32.0      tidyselect_1.2.1         UCSC.utils_1.2.0         farver_2.1.2            
+ [45] spatstat.explore_3.3-3   GenomicAlignments_1.42.0 jsonlite_1.8.9           ellipsis_0.3.2          
+ [49] progressr_0.15.0         ggridges_0.5.6           survival_3.6-4           tools_4.4.0             
+ [53] ica_1.0-3                glue_1.8.0               SparseArray_1.6.2        xfun_0.43               
+ [57] dplyr_1.1.4              withr_3.0.2              fastmap_1.1.1            rhdf5filters_1.18.1     
+ [61] fansi_1.0.6              digest_0.6.35            R6_2.5.1                 mime_0.12               
+ [65] colorspace_2.1-1         scattermore_1.2          Cairo_1.6-2              tensor_1.5              
+ [69] dichromat_2.0-0.1        spatstat.data_3.1-2      utf8_1.2.4               tidyr_1.3.1             
+ [73] generics_0.1.3           httr_1.4.7               htmlwidgets_1.6.4        S4Arrays_1.6.0          
+ [77] pkgconfig_2.0.3          lmtest_0.9-40            S7_0.2.0                 htmltools_0.5.8.1       
+ [81] dotCall64_1.2            scales_1.4.0             png_0.1-8                spatstat.univar_3.0-1   
+ [85] knitr_1.46               rstudioapi_0.16.0        tzdb_0.4.0               reshape2_1.4.4          
+ [89] rjson_0.2.23             nlme_3.1-164             curl_5.2.3               zoo_1.8-12              
+ [93] KernSmooth_2.23-22       miniUI_0.1.1.1           restfulr_0.0.15          pillar_1.9.0            
+ [97] vctrs_0.6.5              RANN_2.6.2               promises_1.3.0           xtable_1.8-4            
+[101] cluster_2.1.6            evaluate_1.0.5           cli_3.6.5                compiler_4.4.0          
+[105] Rsamtools_2.22.0         rlang_1.1.6              crayon_1.5.3             future.apply_1.11.3     
+[109] labeling_0.4.3           fs_1.6.4                 stringi_1.8.4            viridisLite_0.4.2       
+[113] deldir_2.0-4             BiocParallel_1.40.2      lazyeval_0.2.2           spatstat.geom_3.3-3     
+[117] RcppHNSW_0.6.0           hms_1.1.3                patchwork_1.3.0          future_1.34.0           
+[121] Rhdf5lib_1.28.0          shiny_1.9.1              ROCR_1.0-11              igraph_2.0.3            
+
+
+------- Log Info
+
+
+2025-11-01 09:31:16.103527 : getMatrixFromProject Input-Parameters, Class = list
+
+getMatrixFromProject Input-Parameters$ArchRProj: length = 1
+
+getMatrixFromProject Input-Parameters$useMatrix: length = 1
+[1] "GeneScoreMatrix"
+
+
+getMatrixFromProject Input-Parameters$useSeqnames: length = 0
+NULL
+
+
+getMatrixFromProject Input-Parameters$excludeChr: length = 0
+NULL
+
+
+getMatrixFromProject Input-Parameters$verbose: length = 1
+[1] TRUE
+
+
+getMatrixFromProject Input-Parameters$binarize: length = 1
+[1] FALSE
+
+
+getMatrixFromProject Input-Parameters$threads: length = 1
+[1] 14
+
+
+getMatrixFromProject Input-Parameters$logFile: length = 1
+[1] "ArchRLogs/ArchR-getMatrixFromProject-c6b3f156c75ea-Date-2025-11-01_Time-09-31-14.769583.log"
+
+
+2025-11-01 09:31:21.096608 : Reading GeneScoreMatrix : Deepseq(1 of 2), 0.105 mins elapsed.
+2025-11-01 09:31:21.120839 : Reading GeneScoreMatrix : Lowseq(2 of 2), 0.106 mins elapsed.
+
+2025-11-01 09:31:21.162922 : getMatrixFromArrow Input-Parameters, Class = list
+
+getMatrixFromArrow Input-Parameters$ArrowFile: length = 1
+                                                                                                             Deepseq 
+"/projectnb/paxlab/yeting/SpatialATACseq/results/preprocessed/D01942_filtered_ArchR_Output/ArrowFiles/Deepseq.arrow" 
+
+
+getMatrixFromArrow Input-Parameters$useMatrix: length = 1
+[1] "GeneScoreMatrix"
+
+
+getMatrixFromArrow Input-Parameters$useSeqnames: length = 0
+NULL
+
+
+getMatrixFromArrow Input-Parameters$excludeChr: length = 0
+NULL
+
+
+getMatrixFromArrow Input-Parameters$cellNames: length = 16155
+[1] "Deepseq#TCTCGGAATGAGTAGC-1" "Deepseq#ATCCATCGATGCAACC-1" "Deepseq#CTGCAGATTGAGTAGC-1"
+[4] "Deepseq#TAGTCTCCATGCAACC-1" "Deepseq#TACTGGACATGCAACC-1" "Deepseq#ACCATGGATGAGTAGC-1"
+
+
+getMatrixFromArrow Input-Parameters$ArchRProj: length = 1
+
+getMatrixFromArrow Input-Parameters$verbose: length = 1
+[1] FALSE
+
+
+getMatrixFromArrow Input-Parameters$binarize: length = 1
+[1] FALSE
+
+
+getMatrixFromArrow Input-Parameters$logFile: length = 1
+[1] "ArchRLogs/ArchR-getMatrixFromProject-c6b3f156c75ea-Date-2025-11-01_Time-09-31-14.769583.log"
+
+
+
+2025-11-01 09:31:21.178098 : getMatrixFromArrow Input-Parameters, Class = list
+
+getMatrixFromArrow Input-Parameters$ArrowFile: length = 1
+                                                                                                             Lowseq 
+"/projectnb/paxlab/yeting/SpatialATACseq/results/preprocessed/D01942_filtered_ArchR_Output/ArrowFiles/Lowseq.arrow" 
+
+
+getMatrixFromArrow Input-Parameters$useMatrix: length = 1
+[1] "GeneScoreMatrix"
+
+
+getMatrixFromArrow Input-Parameters$useSeqnames: length = 0
+NULL
+
+
+getMatrixFromArrow Input-Parameters$excludeChr: length = 0
+NULL
+
+
+getMatrixFromArrow Input-Parameters$cellNames: length = 15520
+[1] "Lowseq#TCTCGGAATGAGTAGC-1" "Lowseq#TAGTCTCCATGCAACC-1" "Lowseq#TACTGGACATGCAACC-1"
+[4] "Lowseq#ATCCATCGATGCAACC-1" "Lowseq#CTGCAGATTGAGTAGC-1" "Lowseq#ACCTTCGTATGCAACC-1"
+
+
+getMatrixFromArrow Input-Parameters$ArchRProj: length = 1
+
+getMatrixFromArrow Input-Parameters$verbose: length = 1
+[1] FALSE
+
+
+getMatrixFromArrow Input-Parameters$binarize: length = 1
+[1] FALSE
+
+
+getMatrixFromArrow Input-Parameters$logFile: length = 1
+[1] "ArchRLogs/ArchR-getMatrixFromProject-c6b3f156c75ea-Date-2025-11-01_Time-09-31-14.769583.log"
+
+
+
+2025-11-01 09:31:21.562308 : featureDF Lowseq, Class = DFrame
+DataFrame with 24919 rows and 6 columns
+      seqnames     start       end    strand         name       idx
+         <Rle> <integer> <integer> <integer>  <character> <integer>
+1         chr1     69091     70008         1        OR4F5         1
+2         chr1    140339    139790         2    LOC729737         2
+3         chr1    629010    585990         2 LOC101928626         3
+4         chr1    817371    819837         1       FAM87B         4
+5         chr1    825138    859446         1    LINC01128         5
+...        ...       ...       ...       ...          ...       ...
+24915     chrX 155264589 155258241         2       RAB39B       952
+24916     chrX 155334657 155276211         2        CLIC2       953
+24917     chrX 155380787 155381134         1       H2AFB1       954
+24918     chrX 155382115 155383230         1         F8A2       955
+24919     chrX 155669944 155490115         2        TMLHE       956
+
+
+2025-11-01 09:31:21.578176 : featureDF Deepseq, Class = DFrame
+DataFrame with 24919 rows and 6 columns
+2025-11-01 09:31:21.587393 : Getting GeneScoreMatrix from ArrowFile : Lowseq.arrow, 0.007 mins elapsed.
+      seqnames     start       end    strand         name       idx
+         <Rle> <integer> <integer> <integer>  <character> <integer>
+1         chr1     69091     70008         1        OR4F5         1
+2         chr1    140339    139790         2    LOC729737         2
+3         chr1    629010    585990         2 LOC101928626         3
+4         chr1    817371    819837         1       FAM87B         4
+5         chr1    825138    859446         1    LINC01128         5
+...        ...       ...       ...       ...          ...       ...
+24915     chrX 155264589 155258241         2       RAB39B       952
+24916     chrX 155334657 155276211         2        CLIC2       953
+24917     chrX 155380787 155381134         1       H2AFB1       954
+24918     chrX 155382115 155383230         1         F8A2       955
+24919     chrX 155669944 155490115         2        TMLHE       956
+
+2025-11-01 09:31:21.60461 : Getting GeneScoreMatrix from ArrowFile : Deepseq.arrow, 0.007 mins elapsed.
+
+2025-11-01 09:32:42.880855 : mat Lowseq, Class = dgCMatrix
+mat Lowseq: nRows = 24919, nCols = 15520
+mat Lowseq: NonZeroEntries = 240467180, EntryRange = [ 0.005 , 147.815 ]
+5 x 5 sparse Matrix of class "dgCMatrix"
+     Lowseq#TCTCGGAATGAGTAGC-1 Lowseq#TAGTCTCCATGCAACC-1 Lowseq#TACTGGACATGCAACC-1 Lowseq#ATCCATCGATGCAACC-1
+[1,]                     .                         .                          .                        .    
+[2,]                     .                         .                          .                        .    
+[3,]                     .                         .                          .                        .    
+[4,]                     0.087                     0.175                      .                        .    
+[5,]                     0.219                     0.286                      0.22                     0.234
+     Lowseq#CTGCAGATTGAGTAGC-1
+[1,]                     .    
+[2,]                     .    
+[3,]                     .    
+[4,]                     0.078
+[5,]                     0.193
+
+
+2025-11-01 09:32:44.581245 : Organizing SE GeneScoreMatrix from ArrowFile : Lowseq.arrow, 1.39 mins elapsed.
+
+2025-11-01 09:32:44.925429 : se Lowseq, Class = SummarizedExperiment
+class: SummarizedExperiment 
+dim: 24919 15520 
+metadata(0):
+assays(1): GeneScoreMatrix
+rownames: NULL
+rowData names(6): seqnames start ... name idx
+colnames(15520): Lowseq#TCTCGGAATGAGTAGC-1 Lowseq#TAGTCTCCATGCAACC-1 ... Lowseq#GATAGTCGCAGATACG-1
+  Lowseq#TGGTGGTAGCAATCCT-1
+colData names(15): BlacklistRatio DoubletEnrichment ... Sample TSSEnrichment
+
+2025-11-01 09:32:44.934185 : Completed GeneScoreMatrix : Lowseq(2 of 2), 1.503 mins elapsed.
+
+2025-11-01 09:33:24.957241 : mat Deepseq, Class = dgCMatrix
+mat Deepseq: nRows = 24919, nCols = 16155
+mat Deepseq: NonZeroEntries = 328605031, EntryRange = [ 0.003 , 147.324 ]
+5 x 5 sparse Matrix of class "dgCMatrix"
+     Deepseq#TCTCGGAATGAGTAGC-1 Deepseq#ATCCATCGATGCAACC-1 Deepseq#CTGCAGATTGAGTAGC-1 Deepseq#TAGTCTCCATGCAACC-1
+[1,]                      .                          .                          .                          .    
+[2,]                      .                          .                          .                          .    
+[3,]                      .                          .                          .                          .    
+[4,]                      0.144                      0.128                      0.163                      0.150
+[5,]                      0.218                      0.170                      0.266                      0.253
+     Deepseq#TACTGGACATGCAACC-1
+[1,]                      .    
+[2,]                      .    
+[3,]                      .    
+[4,]                      0.205
+[5,]                      0.249
+
+
+2025-11-01 09:33:27.316978 : Organizing SE GeneScoreMatrix from ArrowFile : Deepseq.arrow, 2.103 mins elapsed.
+
+2025-11-01 09:33:27.690171 : se Deepseq, Class = SummarizedExperiment
+class: SummarizedExperiment 
+dim: 24919 16155 
+metadata(0):
+assays(1): GeneScoreMatrix
+rownames: NULL
+rowData names(6): seqnames start ... name idx
+colnames(16155): Deepseq#TCTCGGAATGAGTAGC-1 Deepseq#ATCCATCGATGCAACC-1 ... Deepseq#CCATAACGATTCGCAC-1
+  Deepseq#CTTACACCCTACATGG-1
+colData names(15): BlacklistRatio DoubletEnrichment ... Sample TSSEnrichment
+
+2025-11-01 09:33:27.699122 : Completed GeneScoreMatrix : Deepseq(1 of 2), 2.216 mins elapsed.
+2025-11-01 09:33:39.488137 : Organizing colData, 2.412 mins elapsed.
+2025-11-01 09:33:39.534279 : Organizing rowData, 2.413 mins elapsed.
+2025-11-01 09:33:39.53832 : Organizing rowRanges, 2.413 mins elapsed.
+2025-11-01 09:33:39.54504 : Organizing Assays (1 of 1), 2.413 mins elapsed.
+2025-11-01 09:33:43.054535 : Constructing SummarizedExperiment, 2.471 mins elapsed.
+2025-11-01 09:33:45.439095 : Finished Matrix Creation, 2.493 mins elapsed.

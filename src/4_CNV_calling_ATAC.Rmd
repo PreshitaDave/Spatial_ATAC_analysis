@@ -9,7 +9,8 @@ Did CNV calling using these 2 tools
 # Epianeufinder
 ## Running the tool
 
-Doing this in VS code
+Opened a VS code with 2 cores! Gets killed with 1 core
+Also in case the session gets terminated, no need to delete and restart. epianeufinder resumes from where it stopped 
 
 ###For deepseq data - 
 ```{bash}
@@ -36,6 +37,8 @@ epiAneufinder(input="/projectnb/paxlab/presh/Data/fragments.sort.filtered.bed", 
 
 ###For lowseq data - 
 
+Opened a VS code with 2 cores! Gets killed with 1 core
+
 Need to filter out the gz file /projectnb/paxlab/DATA/DriesSpatial/Atlasxomics/D1942_lowseq/fragments.tsv.gz 
 
 zcat /projectnb/paxlab/DATA/DriesSpatial/Atlasxomics/D1942_lowseq/fragments.tsv.gz  | awk 'NR==FNR{a[$1]; next} $4 in a' /projectnb/paxlab/presh/Data/barcodes.txt - > 	/projectnb/paxlab/presh/Data/lowseq.fragments.sort.filtered.bed
@@ -53,7 +56,7 @@ epiAneufinder(input="/projectnb/paxlab/presh/Data/lowseq.fragments.sort.filtered
               blacklist="/projectnb/paxlab/presh/Data/epianeufinder/hg38-blacklist.v2.bed", #Path to bed file that contains the blacklisted regions of your genome
               windowSize=1e6, 
               genome="BSgenome.Hsapiens.UCSC.hg38", #Substitute with relevant BSgenome
-              exclude=c('chrY','chrM'), 
+              exclude=c('chrX','chrY','chrM'), 
               reuse.existing=TRUE,
               title_karyo="Karyogram of lowseq data", 
               ncores=4,
@@ -184,9 +187,9 @@ points(num_clusters[28], last_heights[28], col = 'red', pch = 16)
 
 library(ArchR)
 
-tiss_488B.proj = loadArchRProject(path = "/projectnb/paxlab/presh/Data", force = FALSE, showLogo = TRUE)
+# tiss_488B.proj = loadArchRProject(path = "/projectnb/paxlab/presh/Data", force = FALSE, showLogo = TRUE)
 
-cluster.meta = as.data.frame(tiss_488B.proj@cellColData)
+cluster.meta = as.data.frame(tiss_488B.proj2@cellColData)
 cluster.meta$barcode = gsub('Deepseq#', 'cell-',rownames(cluster.meta))
 
 # add cluster coordinates from hclust 
@@ -214,21 +217,111 @@ ggplot(cluster.meta2, aes(x = x_spatial, y = y_spatial, color = Cluster)) +
 Subclone by ATAC cluster
 ```{r}
 
+annotation_colors_cluster_palette <- c(
+  "1" = "#8DD3C7", "2" = "#FFFFB3", "3" = "#BEBADA", "4" = "#FB8072", 
+  "5" = "#80B1D3", "6" = "#FDB462"
+)
+
+# Ensure Cluster is a factor/character that matches palette keys
+cluster.meta2$Cluster <- factor(cluster.meta2$Cluster, levels = names(annotation_colors_cluster_palette))
+
+# Create the stacked bar plot
+ggplot(cluster.meta2, aes(x = Clusters_tile, fill = Cluster)) +
+  geom_bar(position = "stack", color = "black") +
+  scale_fill_manual(values = annotation_colors_cluster_palette) +
+  labs(x = "Clusters_tile", y = "Number of Cells", fill = "Cluster") +
+  theme_classic()
 ```
 
 
 
 
 ### For lowseq - 
+```{r}
+options(scipen = 999)
+library(data.table)
+low_cnv_calls <- fread('/projectnb/paxlab/presh/Data/epianeufinder/lowseq_atac_results/epiAneufinder_results/results_table.tsv')
+
+
+low_cnv_calls$start <- as.numeric(low_cnv_calls$start)
+low_cnv_calls$end   <- as.numeric(low_cnv_calls$end)
+# arm_ranges$arm_start <- as.numeric(arm_ranges$arm_start)
+# arm_ranges$arm_end   <- as.numeric(arm_ranges$arm_end)
+
+rownames(low_cnv_calls) = paste(low_cnv_calls$seq, low_cnv_calls$start, low_cnv_calls$end, sep = '_')
+low_cnv_calls2 = low_cnv_calls[,-c(1:4)]
+rownames(low_cnv_calls2) = rownames(low_cnv_calls)
+
+```
+
+
+### For deepseq - 
+```{r}
+options(scipen = 999)
+library(data.table)
+deep_cnv_calls <- fread('/projectnb/paxlab/presh/Data/epianeufinder/atac_results/epiAneufinder_results/results_table.tsv')
+
+
+deep_cnv_calls$start <- as.numeric(deep_cnv_calls$start)
+deep_cnv_calls$end   <- as.numeric(deep_cnv_calls$end)
+# arm_ranges$arm_start <- as.numeric(arm_ranges$arm_start)
+# arm_ranges$arm_end   <- as.numeric(arm_ranges$arm_end)
+
+rownames(deep_cnv_calls) = paste(deep_cnv_calls$seq, deep_cnv_calls$start, deep_cnv_calls$end, sep = '_')
+deep_cnv_calls2 = deep_cnv_calls[,-c(1:4)]
+rownames(deep_cnv_calls2) = rownames(deep_cnv_calls)
+
+```
+
+
+### Comparing low and deepseq - 
+
+so the windows are the same, cells are not, take common cells 
+```{r}
+sum(rownames(deep_cnv_calls2) == rownames(low_cnv_calls2)) == nrow(low_cnv_calls2)
+
+common.cells = intersect(colnames(deep_cnv_calls2) , colnames(low_cnv_calls2)) 
+
+deep_cnv_calls3 = deep_cnv_calls2[, ..common.cells]
+low_cnv_calls3 = low_cnv_calls2[, ..common.cells]
+
+M1_rect = deep_cnv_calls3
+M2_rect = low_cnv_calls3
+
+```
 
 
 
+```{r}
+cnv_method1_discrete <- as.matrix(M1_rect)
+cnv_method2_discrete <- as.matrix(M2_rect)
 
+num_genes = nrow(M1_rect)
+num_cells = length(common.cells)
 
+cat("--- Discrete Calls Comparison: Percent Agreement ---\n")
+percent_agreement <- sum(cnv_method1_discrete == cnv_method2_discrete) / (num_genes * num_cells)
+cat("Overall Percent Agreement:", round(percent_agreement * 100, 2), "%\n")
 
+# You can also break this down by specific state agreement
+# E.g., agreement on 'gain' calls (+1)
+gain_agree <- sum(cnv_method1_discrete == 1 & cnv_method2_discrete == 1) / sum(cnv_method1_discrete == 1 | cnv_method2_discrete == 1)
+cat("Jaccard Index for Gain Calls:", round(gain_agree, 4), "\n\n")
+```
 
+```{r}
+# install.packages("caret") # For confusionMatrix
+library(caret)
 
+cat("--- Discrete Calls Comparison: Confusion Matrix (Method1 vs Method2) ---\n")
+# Convert to factors
+factor_m1 <- factor(as.vector(cnv_method1_discrete), levels = c(0,1,2))
+factor_m2 <- factor(as.vector(cnv_method2_discrete), levels = c(0,1,2))
 
+conf_matrix <- confusionMatrix(factor_m1, factor_m2, mode = "everything")
+print(conf_matrix)
+cat("\n")
+```
 
 
 
@@ -560,11 +653,34 @@ normalize_AtaCNV=  function (count, genome = "hg38", mode = "normal cells", thre
 
 ```{r}
 norm_re = readRDS('/projectnb/paxlab/presh/AtaCNV_output/norm_re.rds')
+
 seg_re <- calculate_CNV_atacnv(norm_count = norm_re$norm_count,
                                 baseline = norm_re$baseline,
                                 output_dir = "/projectnb/paxlab/presh/AtaCNV_output/",
                                 output_name = "CNV_re.rds")
 ```
+
+
+```{r}
+# Example: Check for common format "chrX:Y-Z"
+col_names <- colnames(norm_re$norm_count)
+
+# This regex assumes format like "chr1:1000-2000" or "chrX:1000-2000"
+# Adjust regex if your format is different (e.g., "1:1000-2000" or "X_1000_2000")
+expected_format_regex <- "^(chr)?([0-9XLY]+):([0-9]+)-([0-9]+)$" 
+
+# Find column names that *do not* match the expected format
+malformed_names <- col_names[!grepl(expected_format_regex, col_names)]
+
+if (length(malformed_names) > 0) {
+  message("Found malformed column names:")
+  print(malformed_names)
+} else {
+  message("All column names appear to match the expected format according to the regex.")
+  # If they all match regex, the issue might be subtler or within str2bin itself for edge cases.
+}
+```
+
 
 
 
@@ -677,27 +793,29 @@ calculate_CNV_atacnv <- function (norm_count, baseline, BICseq = "default", lamb
 
 ```
 
-
+This is giving me too many errors, going to abandon using this method
 
 
 # CopySCAT 
 
 https://github.com/spcdot/CopyscAT/blob/master/copyscat_tutorial.R
 ```{r}
-library("devtools")
+# library("devtools")
 
-Sys.setenv("R_REMOTES_NO_ERRORS_FROM_WARNINGS" = "true")
-install_github("spcdot/copyscat")
+# Sys.setenv("R_REMOTES_NO_ERRORS_FROM_WARNINGS" = "true")
+# install_github("spcdot/copyscat")
 
 #load the package
 library(CopyscAT)
 
 
+setwd('/projectnb/paxlab/presh/Data/copyscat')
+
 #load your favourite genome
 library(BSgenome.Hsapiens.UCSC.hg38)
 #use it to save references - this will create a genome chrom.sizes file, a cytobands file and a CpG file
 #NOTE: updated 21-Oct-2021 with a fallback to the REST API
-generateReferences(BSgenome.Hsapiens.UCSC.hg38,genomeText = "hg38",tileWidth = 1e6,outputDir = "~")
+generateReferences(BSgenome.Hsapiens.UCSC.hg38,genomeText = "hg38",tileWidth = 1e6,outputDir = "/projectnb/paxlab/presh/Data/copyscat/ref")
 
 ```
 
@@ -706,11 +824,11 @@ generateReferences(BSgenome.Hsapiens.UCSC.hg38,genomeText = "hg38",tileWidth = 1
 ```{r}
 ##### REGULAR WORKFLOW #####
 #initialize the environment (note: this needs to be done with every session in which you run Copy-scAT)
-initialiseEnvironment(genomeFile="~/hg38_chrom_sizes.tsv",
-                      cytobandFile="~/hg38_1e+06_cytoband_densities_granges.tsv",
-                      cpgFile="~/hg38_1e+06_cpg_densities.tsv",
+initialiseEnvironment(genomeFile="/projectnb/paxlab/presh/Data/CNV_results/copyscat/ref/hg38_chrom_sizes.tsv",
+                      cytobandFile="/projectnb/paxlab/presh/Data/CNV_results/copyscat/ref/hg38_1000000_cytoband_densities_granges.tsv",
+                      cpgFile="/projectnb/paxlab/presh/Data/CNV_results/copyscat/ref/hg38_1000000_cpg_densities.tsv",
                       binSize=1e6,
-                      minFrags=1e4,
+                      minFrags=2e4,
                       cellSuffix=c("-1","-2"),
                       lowerTrim=0.5,
                       upperTrim=0.8)
@@ -718,15 +836,106 @@ initialiseEnvironment(genomeFile="~/hg38_chrom_sizes.tsv",
 #for this tutorial we will use the sample data included in scData
 #to create your own use the process_fragment_file.py script included in the package and run it on a fragments.tsv.gz file of your choosing
 
+#SET OUTPUT DEFAULT DIRECTORY AND NAME
+setOutputFile("/projectnb/paxlab/presh/Data/CNV_results/copyscat","deepseq")
+
+```
+
+
+Generate table from fragment file RIDDLER 
+```{r}
+source('/projectnb/paxlab/presh/software/RIDDLER/util/window_file.R')
+
+window_matrix( '/projectnb/paxlab/presh/Data/deepseq.fragments.sort.filtered.bed','/projectnb/paxlab/presh/software/RIDDLER/features/window_1MB.bed', '/projectnb/paxlab/presh/Data/CNV_results/copyscat/counts.txt',frag_min=10000)
+
+scDatasamp = read.table("/projectnb/paxlab/presh/Data/CNV_results/copyscat/counts.txt", header = T, check.names = F)
 ```
 
 
 
 
+```{r}
+#PART 1: INITIAL DATA NORMALIZATION
+#step 1 normalize the matrix
+#USING SAMPLE DATA FROM PACKAGE
+#option: if using your own file replace below with the following
+# scData<-readInputTable("myInputFile.tsv")
+
+# Taking counts data from epianeufinder results generated
+# counts_summary <- readRDS('/projectnb/paxlab/presh/Data/epianeufinder/atac_results/epiAneufinder_results/count_summary.rds') # for info on ranges
+
+# count = assay(counts_summary)
+# rownames(count) = paste(counts_summary@rowRanges$wSeq, counts_summary@rowRanges$wStart, counts_summary@rowRanges$wEnd, sep = '_')
 
 
 
+# scDataSamp <- t(count)
 
+scData<-read.table('/projectnb/paxlab/presh/Data/deepseq.fragments.sort.filtered.bed')
+
+scData_k_norm <- normalizeMatrixN(scData,logNorm = FALSE,maxZero=2000,imputeZeros = FALSE,blacklistProp = 0.8,blacklistCutoff=125,dividingFactor=1,upperFilterQuantile = 0.95)
+#when using your own data, please make sure you don't have any excess / alt chromosomes
+#collapse into chromosome arm level
+summaryFunction<-cutAverage
+
+scData_collapse<-collapseChrom3N(scData_k_norm,summaryFunction=cutAverage,binExpand = 1,minimumChromValue = 100,logTrans = FALSE,tssEnrich = 1,logBase=2,minCPG=300,powVal=0.73) 
+
+#apply additional filters
+scData_collapse<-filterCells(scData_collapse,minimumSegments = 40,minDensity = 0.1)
+
+#show unscaled chromosome list
+graphCNVDistribution(scData_collapse,outputSuffix = "test_violinsn2")
+
+#compute centers
+median_iqr <- computeCenters(scData_collapse,summaryFunction=summaryFunction)
+
+```
+
+
+
+# RIDDLER 
+
+Date: 2025-11-28 
+
+Generate table from fragment file RIDDLER 
+```{r}
+source('/projectnb/paxlab/presh/software/RIDDLER/util/window_file.R')
+
+window_matrix( '/projectnb/paxlab/presh/Data/deepseq.fragments.sort.filtered.bed','/projectnb/paxlab/presh/software/RIDDLER/features/window_1MB.bed', '/projectnb/paxlab/presh/Data/CNV_results/copyscat/counts.txt',frag_min=10000)
+
+scDatasamp = read.table("/projectnb/paxlab/presh/Data/CNV_results/copyscat/counts.txt", header = T, check.names = F)
+```
+
+
+```{r}
+source("/projectnb/paxlab/presh/software/RIDDLER/riddler_fit.R")
+
+setwd('/projectnb/paxlab/presh/software/RIDDLER/')
+mat_file = "/projectnb/paxlab/presh/Data/CNV_results/copyscat/counts.txt"
+
+rid_obj = riddler_fit(mat_file,feat_file="features/features.1MB.csv",peak_file="features/tissue_peaks.1MB.bed",cov_min=10000,peak_corr_filter=.5)
+```
+
+
+```{r}
+setwd('/projectnb/paxlab/presh/software/RIDDLER/')
+source("copy_call.R")
+
+rid_obj = copy_call(rid_obj,w_size=5,prob_thresh=.025,mult=c(0,.5,1,1.5,2,3))
+
+saveRDS(rid_obj, '/projectnb/paxlab/presh/Data/CNV_results/riddler/rid_obj.rds')
+```
+
+```{r}
+setwd('/projectnb/paxlab/presh/software/RIDDLER/')
+source("cnv_heatmap.R") 
+
+rid_obj = readRDS( '/projectnb/paxlab/presh/Data/CNV_results/riddler/rid_obj.rds')
+
+heat_plot = cnv_heatmap(rid_obj,heat_title="RIDDLER CNVs",ref_bar=NULL,ref_title=NULL,cluster=TRUE)
+
+ggsave(plot=heat_plot,"/projectnb/paxlab/presh/Data/CNV_results/riddler/heatmap.png",device="png",height=5,width=8)
+```
 
 
 

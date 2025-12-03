@@ -1,0 +1,543 @@
+---
+title: "6_compare_atac_xenium"
+editor_options: 
+  chunk_output_type: console
+---
+
+Date: 23 October 2025
+Comparison between Atac seq and Xenium data clusters 
+
+Let's see if the data more or less corresponds between them 
+
+# Setting up libraries
+```{r}
+.libPaths('/projectnb/paxlab/presh/giotto_libs')
+.libPaths()
+
+library(Giotto)
+library(ggplot2)
+
+# Ensure Giotto can access the python env
+set_giotto_python_path(python_path = '/usr3/graduate/preshita/.conda/envs/giotto_env/bin/python', verbose = NULL, initialize = TRUE)
+
+```
+
+
+# Xenium obj
+## Data load in 
+```{r}
+
+data_path = '/projectnb/paxlab/DATA/DriesSpatial/Xenium/output-XETG00253__0048833__488B__20241217__182301'
+
+
+results_folder <- '/projectnb/paxlab/presh/giotto_output'
+
+instrs <- createGiottoInstructions(
+  show_plot = T,
+  return_plot = FALSE,
+  save_plot = FALSE,
+  save_dir = results_folder
+)
+
+data_path <- '/projectnb/paxlab/DATA/DriesSpatial/Xenium/output-XETG00253__0048833__488B__20241217__182301'
+
+# x <- importXenium(data_path)
+# force(x)
+# 
+# xenium488B  <- giotto(instructions = instrs) |>
+#   setGiotto(x$load_polys()) |>
+#   setGiotto(x$load_expression('/projectnb/paxlab/DATA/DriesSpatial/Xenium/output-XETG00253__0048833__488B__20241217__182301/cell_feature_matrix/')) |>
+#   setGiotto(x$load_cellmeta()) |>
+#   addSpatialCentroidLocations()
+# 
+# force(xenium488B)
+# 
+# plot(xenium488B@spatial_locs$cell$raw)
+# 
+# 
+# 
+# xenium488B = filterGiotto(xenium488B, feat_det_in_min_cells = 100, 
+#                   min_det_feats_per_cell = 20, 
+#                   expression_threshold = 1)
+# 
+# norm_name <- 'normalized'
+# xenium488B = normalizeGiotto(xenium488B)
+```
+
+
+morphology_focus/
+├── ch0000_dapi.ome.tif (DAPI)
+├── ch0001_atp1a1_e-cadherin_cd45.ome.tif (ATP1A1/E-Cadherin/CD45)
+├── ch0002_18s.ome.tif (18S rRNA)
+└── ch0003_alphasma_vimentin.ome.tif (alphaSMA/Vimentin)
+
+```{r}
+# Making a named list of images
+img_list = list('dapi' = "/projectnb/paxlab/presh/tif_exports/morphology_focus_0000.tif", 
+                'img_1' = "/projectnb/paxlab/presh/tif_exports/morphology_focus_0001.tif",
+                'img_2' = "/projectnb/paxlab/presh/tif_exports/morphology_focus_0002.tif",
+                'img_3' = "/projectnb/paxlab/presh/tif_exports/morphology_focus_0003.tif" )
+
+
+feat_types <- c(
+    "rna",
+    "UnassignedCodeword", 
+    "NegControlCodeword",  
+    "NegControlProbe"
+)
+split_keywords = list(
+    c("BLANK"),
+    c("NegControlCodeword"),
+    c("NegControlProbe", "antisense")
+)
+
+
+xenium488B = createGiottoXeniumObject(
+  data_path,
+  transcript_path = NULL,
+  bounds_path = list(cell = "cell", nucleus = "nucleus"),
+  gene_panel_json_path = NULL,
+  expression_path = '/projectnb/paxlab/DATA/DriesSpatial/Xenium/output-XETG00253__0048833__488B__20241217__182301/cell_feature_matrix/',
+  cell_metadata_path = NULL,
+  feat_type = feat_types,
+  split_keyword = split_keywords,
+  qv_threshold = 20,
+  load_images = img_list,
+  load_aligned_images = NULL,
+  load_transcripts = F,
+  load_expression = T,
+  load_cellmeta = T,
+  instructions = instrs,
+  verbose = NULL
+)
+
+
+force(xenium488B)
+plot(xenium488B@spatial_locs$cell$raw)
+
+# let's crop the object 
+
+spatPlot2D(xenium488B,
+    # scattermore speeds up plotting
+    plot_method = "scattermore",
+    point_shape = "no_border",
+    point_size = 1
+)
+
+
+# cropping the xenium object roughly 
+xenium_crop <- subsetGiottoLocs(xenium488B, x_min = 5000, x_max = 10600)
+
+
+```
+
+Loading transcripts into the object takes forever, not needed
+Also we don't aggregate the data as it needs feat_type which comes from loading transcripts 
+
+GOING TO ONLY WORK WITH XENIUM CROP IMAGE FOR NOW!
+
+
+## normalize and pca 
+```{r}
+xenium_crop <- xenium_crop |>
+    filterGiotto(,
+        spat_unit = 'cell',
+        expression_threshold = 1,
+        feat_det_in_min_cells = 3,
+        min_det_feats_per_cell = 5
+    ) |>
+    normalizeGiotto() |> 
+    addStatistics() |>
+    runPCA(feats_to_use = NULL) # don't use HVFs since there are too few features*
+```
+
+
+```{r}
+# Visualize Screeplot and PCA
+screePlot(xenium_crop, ncp = 20)
+```
+
+
+```{r}
+plotPCA(xenium_crop, point_size = 0.1)
+```
+
+
+## leiden clustering 
+```{r}
+
+xenium_crop = createNearestNetwork(gobject = xenium_crop,
+                                        dimensions_to_use = 1:10,
+                                        k = 10, # number of neighbors
+                                        name = 'nn_network'
+                                        )
+
+xenium_crop = doLeidenCluster(gobject = xenium_crop,
+                                   network_name = 'nn_network', # use the network created in step 3
+                                   name = 'leiden_clus', # choose a name for the cluster results
+                                   resolution = 0.05 # adjust resolution as needed
+                                   )
+```
+
+## umap 
+```{r}
+xenium_crop <- runUMAP(gobject = xenium_crop,
+                   dimensions_to_use = 1:10, # adjust based on your PCA results
+                   n_components = 2,       # set to 3 for 3D, or 2 for 2D
+                   n_threads = 4)
+
+# Plot the UMAP colored by the Leiden clusters
+plotUMAP_2D(gobject = xenium_crop,
+            cell_color = 'leiden_clus',
+            point_size = 1
+            )
+```
+
+
+## visualize clusters spatially 
+
+```{r}
+spatPlot2D(gobject = xenium_crop,
+                          spat_unit = 'cell',
+                          cell_color = 'leiden_clus',
+                          point_size = 0.025,
+                          point_shape = 'no_border',
+                          # color_as_factor = F,
+                          show_legend = TRUE,point_border_stroke = 0,
+                          background_color = 'black',
+                          save_param = list(
+                            save_name = 'sg_spat_leiden',
+                            base_width = 15,
+                            base_height = 15))
+
+```
+
+
+
+```{r}
+spatFeatPlot2D(xenium_crop, 
+              expression_values = "scaled", 
+              feats = c('TERT', 'FOXA1', 'CD19', 'CPA3', 'KLRD1'), cow_n_col = 2, 
+              point_size = 0.2)
+
+
+# Breast cancer genes
+spatFeatPlot2D(xenium_crop, 
+              expression_values = "normalized",  cell_color_gradient = c('white', 'red'),
+              feats = c('ESR1', 'ERBB2', 'PGR', 'MKI67'), gradient_limits = c(0,3), 
+              point_size = 0.1)
+
+
+```
+
+ERBB2 - also HER2
+
+
+
+<!-- ```{r} -->
+<!-- # example plot for polygons -->
+<!-- spatInSituPlotPoints(xenium488B, -->
+<!--     xlim = c(5500, 6000), -->
+<!--     ylim = c(-2000, -1000), -->
+<!--     show_image = TRUE, -->
+<!--     image_name = "dapi", -->
+<!--     polygon_line_size = 0.1, -->
+<!--     polygon_color = "#BB0000", -->
+<!--     polygon_alpha = 0.2 -->
+<!-- ) -->
+<!-- ``` -->
+
+
+
+# Atac object
+
+Loading in the imputed object 
+```{r}
+# atac.obj <- readRDS('/projectnb/paxlab/presh/saveAtacgiotto.rds')
+atac.imp.obj <- readRDS('/projectnb/paxlab/presh/saveAtacgiotto_imputed.rds')
+
+sg <- atac.imp.obj$Deepseq
+
+# we should filter out more cells since we know that the borders are not great 
+int.cells.atac = read.csv('/projectnb/paxlab/presh/Data/int_cells_trim_atac.csv', header = T, row.names = 1)
+int.cells.atac =int.cells.atac$x
+
+sg2 = subsetGiotto(
+  sg,
+  spat_unit = ":all:", feat_type = ":all:", 
+  cell_ids = int.cells.atac
+)
+
+# sg2 = filterGiotto(sg2, feat_det_in_min_cells = 100,
+#                   spat_unit = 'cell',
+#                   feat_type = 'atac',
+#                   expression_values = 'GeneScoreMatrix',
+#                   min_det_feats_per_cell = 20, 
+#                   expression_threshold = 1)
+# 
+# 
+# norm_name <- 'normalized'
+
+activeSpatUnit(sg2) <- 'cell'
+activeFeatType(sg2) <- 'atac'
+
+
+sg2@expression[["cell"]][["atac"]][["normalized"]] = sg2@expression[["cell"]][["atac"]][["GeneScoreMatrix"]]
+sg2@expression[["cell"]][["atac"]][["scaled"]] = scale(sg2@expression[["cell"]][["atac"]][["normalized"]]@exprMat)
+
+
+# sg2 = normalizeGiotto(sg2, norm_methods = 'standard', name = norm_name, expression_values = 'GeneScoreMatrix')
+
+# Statistics
+# sg2 = addStatistics(sg2, expression_values = norm_name)
+
+
+# test <- spatPlot2D(gobject = sg2,
+#                    show_image = F,
+#                    point_alpha = 0.7,
+#                    point_size = 0.6,
+#                    background_color = 'black',
+#                    cell_color = 'nr_feats',
+#                    color_as_factor = F,
+#                    save_param = list(
+#                      save_name = 'nr_feats',
+#                      base_width = 15,
+#                      base_height = 15))
+# 
+# test
+
+```
+
+
+```{r}
+spatFeatPlot2D(sg2, expression_values = "scaled",
+              feats = c('TERT', 'FOXA1', 'CD19', 'KLRD1','SOX17','MS4A1','HOXD9','KLRC1', 'TPSAB1'))
+
+```
+
+Breast cancer genes
+```{r}
+# scaled expr
+spatFeatPlot2D(sg2, expression_values = "scaled",
+              feats = c('ESR1', 'MKI67', 'EGFR', 'ERBB2', 'PGR'))
+
+# just normalized expression 
+spatFeatPlot2D(sg2, expression_values = "normalized", 
+              feats = c('ESR1'),  cell_color_gradient = c('white', 'red'), gradient_limits = c(0,3), 
+              point_size = 1)
+
+```
+
+
+I'm not able to force my limits weirdly 
+
+
+<!-- ## umap -->
+<!-- ```{r} -->
+
+
+<!-- sg2 = runPCA(feats_to_use = NULL) # don't use HVFs since there are too few features* -->
+
+<!-- screePlot(sg2) -->
+
+<!-- # Run and Plot tSNE and UMAP -->
+<!-- sg2 = runUMAP(sg2, -->
+<!--              expression_values = 'normalized', -->
+<!--              dimensions_to_use = 1:13, -->
+<!--              spat_unit = 'cell') -->
+
+<!-- plotUMAP(sg2, -->
+<!--          point_size = 0.01, -->
+<!--          save_param = list( -->
+<!--            save_name = 'sg_UMAP')) -->
+
+<!-- # Clustering and UMAP cluster visualization -->
+<!-- sg2 = createNearestNetwork(sg2, -->
+<!--                           dimensions_to_use = 1:13, -->
+<!--                           expression_values = norm_name, -->
+<!--                           k = 25, -->
+<!--                           spat_unit = 'cell') -->
+<!-- sg2 = doLeidenClusterIgraph(sg2, -->
+<!--                      resolution = 0.4, -->
+<!--                      n_iterations = 10, -->
+<!--                      spat_unit = 'cell') -->
+
+<!-- # Plot Leiden clusters onto UMAP -->
+<!-- plotUMAP(gobject = sg2, -->
+<!--          spat_unit = 'cell', -->
+<!--          # select_cells = healthy_cancer, -->
+<!--          cell_color = 'leiden_clus', -->
+<!--          show_legend = TRUE, -->
+<!--          point_size = 0.01, -->
+<!--          point_shape = 'no_border', -->
+<!--          save_param = list(save_name = 'sg_umap_leiden')) -->
+
+<!-- my_spatPlot <- spatPlot2D(gobject = sg2, -->
+<!--                           spat_unit = 'cell', -->
+<!--                           cell_color = 'leiden_clus', -->
+<!--                           point_size = 0.025, -->
+<!--                           point_shape = 'no_border', -->
+<!--                           # color_as_factor = F, -->
+<!--                           show_legend = TRUE,point_border_stroke = 0, -->
+<!--                           background_color = 'black', -->
+<!--                           save_param = list( -->
+<!--                             save_name = 'sg_spat_leiden', -->
+<!--                             base_width = 15, -->
+<!--                             base_height = 15)) -->
+<!-- ``` -->
+
+## add metadata
+```{r}
+archr.meta = read.table('/projectnb/paxlab/presh/Data/archr_metadata.tsv')
+archr.meta$cell_ID =gsub('-1','' ,gsub('Deepseq#', '', rownames(archr.meta)))
+
+sg2 <- addCellMetadata(gobject = sg2,
+                               new_metadata = archr.meta, by_column = T, 
+                               column_cell_ID = 'cell_ID')
+```
+
+
+
+
+# Similarity between clusters
+
+Date: 2025-11-10
+
+Jeff reported that some genes are anti-correlated in Xenium vs Atac seq data
+
+Let's look at cluster similarity gene by correlation maybe?
+
+```{r}
+
+avg_expr_xenium = calculateMetaTable(
+    gobject = xenium_crop,
+    expression_values = "normalized", # or "scaled", "custom", etc.
+    metadata_cols = "leiden_clus"
+)
+
+
+```
+
+I don't care about cluster 5 xenium 
+
+```{r}
+avg_expr_atac = calculateMetaTable(
+    gobject = sg2,
+    expression_values = "normalized", # or "scaled", "custom", etc.
+    metadata_cols = "Clusters_tile"
+)
+avg_expr_atac = na.omit(avg_expr_atac)
+
+# remove genes not in xenium 
+avg_expr_atac_filt = avg_expr_atac[avg_expr_atac$variable %in% unique(avg_expr_xenium$variable), ]
+avg_expr_atac_filt$uniq_ID <- as.numeric(gsub('C','',avg_expr_atac_filt$uniq_ID))
+```
+
+```{r}
+library(tidyr)
+library(dplyr)
+library(tibble)
+
+df1 <- avg_expr_atac_filt
+df2 <- avg_expr_xenium
+
+# Make matrices (clusters × variables)
+atac_mat <- df1 %>% 
+  pivot_wider(names_from = variable, values_from = value) %>% 
+  column_to_rownames("uniq_ID")
+
+xenium_mat <- df2 %>% 
+  pivot_wider(names_from = variable, values_from = value) %>% 
+  column_to_rownames("uniq_ID")
+
+atac_mat <- atac_mat[, -1]
+xenium_mat <- xenium_mat[, -1]
+```
+
+
+```{r}
+library(tidyr)
+#1. Compute Expression Profiles for Each Cluster
+atac_cluster_expr <- df1 %>% pivot_wider(names_from = variable, values_from = value)
+xenium_cluster_expr <- df2 %>% pivot_wider(names_from = variable, values_from = value)
+
+#2. Normalize Each Cluster's Profile
+# Make sure all columns except uniq_ID are numeric
+atac_norm <- atac_cluster_expr %>%
+  select(-uniq_ID, -Clusters_tile) %>% 
+  mutate(across(everything(), as.numeric)) %>%
+  as.matrix() %>%
+  t() %>%
+  scale(center=TRUE, scale=TRUE) %>%
+  t()
+
+xenium_norm <- xenium_cluster_expr %>%
+  select(-uniq_ID, -leiden_clus) %>%
+  mutate(across(everything(), as.numeric)) %>%
+  as.matrix() %>%
+  t() %>%
+  scale(center=TRUE, scale=TRUE) %>%
+  t()
+
+
+shared_genes <- intersect(colnames(atac_norm), colnames(xenium_norm))
+atac_sub <- atac_norm[, shared_genes]
+xenium_sub <- xenium_norm[, shared_genes]
+#3. Calculate Similarity Matrix between Clusters Across Assays
+similarity_matrix <- cor(t(atac_sub), t(xenium_sub), use="pairwise.complete.obs")
+# Rows: ATAC clusters, Columns: Xenium clusters
+
+
+```
+
+```{r}
+max_match_atac <- apply(similarity_matrix, 1, function(x) colnames(similarity_matrix)[which.max(x)])
+max_similarity_atac <- apply(similarity_matrix, 1, max)
+
+# As a dataframe:
+cluster_matching <- data.frame(
+  ATAC_cluster = rownames(similarity_matrix),
+  Best_Xenium_cluster = max_match_atac,
+  similarity = max_similarity_atac
+)
+```
+
+```{r}
+library(pheatmap)
+pheatmap(similarity_matrix, display_numbers = TRUE, cluster_rows = FALSE, 
+         cluster_cols = FALSE,
+         main = "Cluster similarity: ATAC (Y axis) vs Xenium (X axis)")
+```
+
+
+
+
+
+```{r}
+compare_binary <- function(var) {
+  a <- df1 %>% filter(variable == var) %>% select(uniq_ID, atac_value = value)
+  x <- df2 %>% filter(variable == var) %>% select(uniq_ID, xenium_value = value)
+  joined <- inner_join(a, x, by = "uniq_ID")
+  joined <- joined %>%
+    mutate(atac_bin = atac_value > median(atac_value),
+           xenium_bin = xenium_value > median(xenium_value),
+           agreement = case_when(
+             atac_bin & xenium_bin ~ "both_high",
+             !atac_bin & !xenium_bin ~ "both_low",
+             atac_bin & !xenium_bin ~ "ATAC_high_Xenium_low",
+             !atac_bin & xenium_bin ~ "ATAC_low_Xenium_high"
+           ))
+  return(joined)
+}
+agreement <- lapply(common_vars, compare_binary)
+```
+
+
+
+
+
+
+
+
+
+

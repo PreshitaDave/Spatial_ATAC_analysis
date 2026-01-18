@@ -1,0 +1,213 @@
+---
+title: "geseca_analysis_atac"
+---
+
+Date: Dec 8 2025 
+
+
+Based on 5_Xenium_giotto_analysis, do GESECA analysis 
+Load in the raw gene score matrix (and maybe imputed matrix) and do geseca analysis and compare to the xenium results and see
+
+```{r}
+suppressPackageStartupMessages({ 
+library(fgsea)
+library(Seurat)
+packageVersion('Seurat')
+library(arrow, lib.loc = '/projectnb/paxlab/presh/giotto_libs')
+library(SummarizedExperiment)
+})
+
+path <- "/projectnb/paxlab/presh"
+```
+
+
+```{r}
+genescore <- readRDS(file.path(path, 'gene_score_deepseq.rds'))
+# read in interested cells 
+int.cells <- read.csv('/projectnb/paxlab/presh/Data/int_cells_trim_atac.csv')
+int.cells.new = paste0('Deepseq#',int.cells$x,'-1')
+
+cells_indices_from_names_sparse <- match(int.cells.new, colnames(genescore))
+subset_sparse_genescore <- genescore[, cells_indices_from_names_sparse, drop = FALSE]
+
+gene_score_matrix <- assay(subset_sparse_genescore)
+
+rownames(gene_score_matrix) = genescore@elementMetadata@listData[["name"]]
+# Extract cell metadata (colData) and convert to a standard data.frame
+cell_metadata <- as.data.frame(colData(genescore))
+
+# --- Step 2: Create a new Seurat object ---
+# When using CreateSeuratObject, the 'counts' argument expects the primary expression matrix.
+# Since gene_score_matrix holds scores (already processed/normalized),
+# we'll put it here, but then explicitly move it to the 'data' slot in the next step.
+# It's good practice to provide dimnames.
+seurat_obj_genescore <- CreateSeuratObject(
+  counts = gene_score_matrix, # Temporarily place scores here
+  meta.data = cell_metadata,
+  assay = "GeneScores", # Name your new assay (e.g., "ATAC", "GeneActivity", "GeneScores")
+  project = "ATAC_GeneScore_Project" # Optional: give your project a name
+)
+
+```
+
+Processing the spatial data 
+```{r}
+coords <- spatial_locs <- read.csv(file.path('/projectnb/paxlab/yeting/SpatialATACseq/data',
+                                   "/tissue_positions_list.csv"),
+                         header = FALSE)
+colnames(spatial_locs) <- c("barcode", "in_tissue", "array_row", "array_col", "x_spatial", "y_spatial")
+
+xy <- spatial_locs[, c("barcode", "x_spatial", "y_spatial")]
+xy2 = spatial_locs[spatial_locs$in_tissue == 1, ]
+
+# if anything is above y spatial = 4000 it is tissue 488 , else 487 
+xy2$tissue = ifelse(xy2$y_spatial > 4000, 'Tiss_488B', 'Tiss_487')
+
+# subset to int cells 
+rownames(xy2) <- xy2$barcode
+xy3 <- xy2[int.cells$x,]
+xy3$barcode2 = paste0('Deepseq#',xy3$barcode,'-1')
+
+coords = xy3[, c("x_spatial", "y_spatial", "barcode2")]
+colnames(coords) = c('x', 'y', 'cell')
+
+dummy_image_data <- matrix(0, nrow = 1, ncol = 1)
+fov_object <- CreateFOV(
+  coords = coords,
+  type = "centroids", # Explicitly state the type of coordinates
+  key = 'fov1',
+  image = dummy_image_data
+)
+
+
+# Add spatial coordinates to metadata 
+# check if order is the same 
+colnames(seurat_obj_genescore) == xy3$barcode2 
+rownames(seurat_obj_genescore@meta.data) == xy3$barcode2 
+
+```
+
+Keeping only protein coding genes
+```{r}
+library(AnnotationDbi)
+library(EnsDb.Hsapiens.v79)
+
+edb <- EnsDb.Hsapiens.v79 # Use your specific EnsDb version
+
+current_seurat_genes <- rownames(seurat_obj_genescore)
+
+    # Query the EnsDb database for gene biotypes
+    gene_info <- AnnotationDbi::select(
+     edb,
+     keys = current_seurat_genes, # Use the cleaned gene IDs
+     keytype = "SYMBOL",
+     columns = c("GENEID", "GENEBIOTYPE", "SYMBOL") # Also retrieve SYMBOL for verification
+    )
+
+    # Filter for protein-coding genes
+    protein_coding_genes_edb <- gene_info %>%
+      filter(GENEBIOTYPE == 'protein_coding') %>%
+      pull(SYMBOL) %>%
+      unique() # Ensure unique gene IDs
+
+    # Get the intersection with genes actually in the Seurat object
+    protein_coding_genes_to_keep <- intersect(current_seurat_genes, protein_coding_genes_edb)
+    
+```
+
+
+
+```{r}
+
+seurat_obj_genescore@images[["fov1"]] <- fov_object
+
+seurat_obj_protein_coding <- subset(seurat_obj_genescore, features = protein_coding_genes_to_keep)
+
+
+# xobj.seu <- subset(xobj.seu, subset = nCount_Xenium > 50)
+# xobj.seu.crop <- xobj.seu[, xobj.seu$x > 5000 & xobj.seu$x < 10600]
+
+# Normalize and scale data
+seurat_obj_protein_coding <- NormalizeData(seurat_obj_protein_coding, normalization.method = "LogNormalize", scale.factor = 1000, verbose = FALSE)
+seurat_obj_protein_coding <- FindVariableFeatures(seurat_obj_protein_coding, nfeatures = 2000, verbose = FALSE)
+seurat_obj_protein_coding <- ScaleData(seurat_obj_protein_coding, verbose = FALSE)
+
+# # Perform PCA and UMAP dimensionality reduction
+# seurat_obj_genescore <- RunPCA(seurat_obj_genescore, verbose = FALSE)
+# seurat_obj_genescore <- RunUMAP(seurat_obj_genescore, dims = 1:20)
+# seurat_obj_genescore <- FindNeighbors(seurat_obj_genescore, reduction = "pca", dims = 1:30)
+# seurat_obj_genescore <- FindClusters(seurat_obj_genescore, resolution = 0.2)
+
+
+ImageDimPlot(seurat_obj_protein_coding, 
+                   dark.background = T, size = 0.8, 
+                   flip_xy = F) 
+
+
+# ImageDimPlot(
+#   seurat_obj_genescore,
+#   fov = "fov1", # Specify the FOV you just added
+#   dark.background = TRUE,
+#   size = 0.5,
+#   flip_xy = FALSE
+# ) +
+#   ggplot2::coord_flip() +
+#   ggplot2::scale_x_reverse()
+
+
+# DimPlot(seurat_obj_genescore,  raster = FALSE, pt.size = 0.5, stroke.size = 0.0) + 
+#      ggplot2::coord_fixed()
+```
+
+
+```{r}
+library(fgsea)
+library(msigdbr)
+set.seed(1)
+
+
+seurat_obj_protein_coding <- RunPCA(seurat_obj_protein_coding, verbose = F, rev.pca = TRUE, reduction.name = "pca.rev", 
+               reduction.key="PCR_", npcs=30)
+
+E <- seurat_obj_protein_coding@reductions$pca.rev@feature.loadings
+
+gsets <- msigdbr(species="human", category="H")
+gsets <- split(gsets$gene_symbol, gsets$gs_name)
+
+
+gesecaRes <- geseca(gsets, E, minSize = 10, maxSize = 500, center = FALSE, eps = 1e-100)
+
+head(gesecaRes, 10)
+
+topPathways <- gesecaRes[, pathway] |> head(4)
+titles <- sub("HALLMARK_", "", topPathways)
+```
+
+
+```{r}
+topPathways <- gesecaRes[, pathway][1:4]
+titles <- sub("HALLMARK_", "", topPathways)
+
+imagePlots <- plotCoregulationProfileImage(
+    gsets[topPathways], object = seurat_obj_protein_coding, 
+    dark.background = FALSE, 
+    title = titles, 
+    size=0.9, minLimit = -2, maxLimit = 2
+)
+
+imagePlots <- lapply(imagePlots, function(p){
+    suppressMessages(
+        p +  ggplot2::coord_flip() 
+    )
+})
+
+cowplot::plot_grid(plotlist = imagePlots, ncol = 2)
+
+```
+
+
+
+
+
+
+

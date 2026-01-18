@@ -47,11 +47,11 @@ To run this pipeline, please follow these general steps:
 
 This project relies on a combination of bioinformatics tools and R packages. Key dependencies include:
 
--   R (version 4.0 or higher recommended)
+-   R (version 4.4.0 or higher recommended)
 -   Samtools
 -   BWA
 -   Specific R packages (details in `1_Lib_install.Rmd`, including ArchR, Giotto, etc.)
 
 ## Contact
 
-For any questions or issues, please contact [Your Name/Email Address/GitHub Profile].
+For any questions or issues, please contact the owner of the repository (preshita@bu.edu).

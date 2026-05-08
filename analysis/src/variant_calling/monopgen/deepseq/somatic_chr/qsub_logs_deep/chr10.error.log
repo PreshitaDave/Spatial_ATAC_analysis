@@ -1,0 +1,54 @@
+========================================
+Job started at Tue Apr 14 09:50:29 EDT 2026
+Chromosome: chr10
+Node: scc-tc3
+========================================
+Starting chr10 at Tue Apr 14 09:50:29 EDT 2026
+Python: /projectnb/paxlab/presh/env/conda_env/monopgen_env/bin/python
+Python version: Python 3.8.20
+Running command...
+[2026-04-14 09:50:31,010] INFO     Monopogen.py Get feature information from sequencing data...
+Job started at Tue Apr 14 14:08:26 EDT 2026
+[2026-04-14 14:08:27,633] INFO     Monopogen.py Get feature information from sequencing data...
+[2026-04-14 14:19:32,395] INFO     Monopogen.py Success! See instructions above.
+[2026-04-14 14:19:33,578] INFO     Monopogen.py Collect single cell level information from sequencing data...
+[2026-04-14 14:49:42,468] INFO     Monopogen.py Success! See instructions above.
+[2026-04-14 14:49:43,358] INFO     Monopogen.py Run LD refinement ...
+
+Attaching package: ‘ggplot2’
+
+The following object is masked from ‘package:e1071’:
+
+    element
+
+
+Attaching package: ‘reshape2’
+
+The following objects are masked from ‘package:data.table’:
+
+    dcast, melt
+
+`geom_smooth()` using method = 'loess' and formula = 'y ~ x'
+[2026-04-14 15:24:57,187] INFO     Monopogen.py Success! See instructions above.
+Job started at Fri Apr 17 01:59:37 EDT 2026
+[2026-04-17 01:59:38,120] INFO     Monopogen.py Get feature information from sequencing data...
+[2026-04-17 02:09:57,612] INFO     Monopogen.py Success! See instructions above.
+[2026-04-17 02:09:58,743] INFO     Monopogen.py Collect single cell level information from sequencing data...
+[2026-04-17 09:44:37,444] INFO     Monopogen.py Success! See instructions above.
+[2026-04-17 09:44:38,606] INFO     Monopogen.py Run LD refinement ...
+
+Attaching package: ‘ggplot2’
+
+The following object is masked from ‘package:e1071’:
+
+    element
+
+
+Attaching package: ‘reshape2’
+
+The following objects are masked from ‘package:data.table’:
+
+    dcast, melt
+
+`geom_smooth()` using method = 'loess' and formula = 'y ~ x'
+[2026-04-17 11:12:00,305] INFO     Monopogen.py Success! See instructions above.

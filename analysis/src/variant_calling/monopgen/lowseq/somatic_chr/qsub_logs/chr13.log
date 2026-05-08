@@ -1,0 +1,157 @@
+========================================
+Starting LD Refinement Analysis
+Region: chr13 
+========================================
+
+[Main] Reading input file: /projectnb/paxlab/presh/projects/spatial_atac/Data/variant_calling/lowseq/somatic/chr13.gl.filter.hc.cell.mat.gz 
+[Main] Loaded 47742 rows x 15538 columns
+[Main] Initial SNV+INDEL count: 47742 
+
+[Main] Filtering SNVs (removing INDELs)...
+[Main] After filtering:  47539 SNVs remain
+[Main]   -> Removed 203 indels
+
+[Main] Reading cell filter file...
+[Main] Processing variant metadata...
+[Main]   -> SNVs with genotype=0|0: 1661 
+[Main]   -> SNVs with genotype=.|.: 1905 
+[Main]   -> SNVs with other genotypes: 43973 
+
+[Main] Computing cell-level depth information...
+[Main]   -> Using vectorized operations (fast mode)...
+[Main]   -> Extracting and parsing genotypes...
+[Main]   -> Processed 47539 variants
+
+[Main] Saving allSNVs metadata...
+[Main] Filtering multi-allelic loci...
+[Main]   -> Found 221 multi-allelic positions with 445 variants
+[Main] After filtering: 47273 variants remain
+[Main]   -> Removed 266 variants from multi-allelic loci
+
+[Main] Checking sequencing depth concordance...
+[Main]   -> Concordance cutoff: 1e+06 (alt depth discordance)
+[Main]   -> Removed 0 somatic +  0 germline variants with depth discordance
+
+[Main] Final variant count: 47273 
+
+[Main] Running SNV block identification...
+  [SNV_block] Counting germline SNV blocks...
+  [SNV_block] Found 1130 germline SNV blocks
+[Main] Preparing SVM training data...
+  [SVM_prepare] Preparing positive/negative labels...
+  [SVM_prepare] Positive variants: 45604 | Negative variants: 359 | Test variants: 1310 
+[Main] Final variant counts before SVM training:
+[Main]   -> Positive (germline) variants:  45604 
+[Main]   -> Negative (somatic/test) variants:  359 
+[Main]   -> Test variants (unknown):  1310 
+
+[Main] Training SVM classifier...
+  [SVM_train] Starting SVM training...
+  [SVM_train] Using 8 features: QS, VDB, SGB, RPB, MQB, MQSB, BQB, MQ0F 
+  [SVM_train] Creating feature distribution plot...
+  [SVM_train] Feature plot saved
+  [SVM_train] Training SVM model...
+  [SVM_train] Making predictions on test set...
+  [SVM_train] SVM training completed
+[Main] Phasing alleles at single-cell resolution..
+[Main] Extracting cell data and genotypes..
+[Main] Processing phasing in memory-efficient chunks..
+[Main]   -> Processing rows 1 to 10000 
+[Main]   -> Processing rows 10001 to 20000 
+[Main]   -> Processing rows 20001 to 30000 
+[Main]   -> Processing rows 30001 to 40000 
+[Main]   -> Processing rows 40001 to 47273 
+[Main] Checking for flip genotypes..
+[Main]   -> Flipping 21249 variants with 1|0 genotypes..
+[Main] Phasing complete
+
+[Main] Running somatic LD refinement...
+[Main] === CRITICAL DECISION POINT ===
+[Main] Checking germline variant count for LD refinement...
+[Main]   -> SVM Positive (Germline) variants available:  45604 
+[Main]   -> SVM Test (Putative Somatic) variants:  1310 
+[Main]   -> Minimum germline variants required: 50
+[Main]   -> DECISION: PROCEED with LD refinement (sufficient germline variants)
+
+[Main] Raw data in somaticLD function will compute:
+  [somaticLD] Starting LD refinement analysis...
+  [somaticLD] Creating ID indices...
+  [somaticLD] Total variants: 46914 | Germline: 45604 | Somatic: 1310 
+  [somaticLD] Minimum required germline variants:  50 
+  [somaticLD] Found germline variants:  45604 
+  [somaticLD] STATUS: Proceeding with LD refinement
+  [somaticLD] Computing twoloci patterns...
+  [somaticLD] Computing twoloci patterns...
+  [twoloci] Processing two-loci LD patterns...
+  [twoloci]   -> Matrix dimensions: 46914 x 15520 
+  [twoloci]   -> Germline indices: 45604 
+  [twoloci]   -> Somatic indices: 1310 
+    [twoloci] Progress:  10 %
+    [twoloci] Progress:  20 %
+    [twoloci] Progress:  30 %
+    [twoloci] Progress:  40 %
+    [twoloci] Progress:  50 %
+    [twoloci] Progress:  60 %
+    [twoloci] Progress:  70 %
+    [twoloci] Progress:  80 %
+    [twoloci] Progress:  90 %
+    [twoloci] Progress:  100 %
+  [twoloci] Found 1293 somatic positions
+  [somaticLD]   -> twoloci computation completed
+  [somaticLD] Computing trioloci patterns...
+  [trioloci] Processing trio-loci LD patterns...
+  [trioloci]   -> Matrix dimensions: 46914 x 15520 
+  [trioloci]   -> Germline indices: 45604 
+  [trioloci]   -> Somatic indices: 1310 
+    [trioloci] Progress:  10 %
+    [trioloci] Progress:  20 %
+    [trioloci] Progress:  30 %
+    [trioloci] Progress:  40 %
+    [trioloci] Progress:  50 %
+    [trioloci] Progress:  60 %
+    [trioloci] Progress:  70 %
+    [trioloci] Progress:  80 %
+    [trioloci] Progress:  90 %
+    [trioloci] Progress:  100 %
+  [trioloci] Found 1250 somatic positions
+  [somaticLD]   -> trioloci computation completed
+  [somaticLD] Calculating p-values...
+  [somaticLD]   -> p-value calculation completed
+  [somaticLD] Mapping LD scores to test variants...
+  [somaticLD]   -> Test variants to map:  1310 
+  [somaticLD]   -> LD refined somatic variants:  1310 
+    [somaticLD] Progress:  10 %
+    [somaticLD] Progress:  20 %
+    [somaticLD] Progress:  30 %
+    [somaticLD] Progress:  40 %
+    [somaticLD] Progress:  50 %
+    [somaticLD] Progress:  60 %
+    [somaticLD] Progress:  70 %
+    [somaticLD] Progress:  80 %
+    [somaticLD] Progress:  90 %
+    [somaticLD] Progress:  100 %
+  [somaticLD]   -> Successfully mapped:  1310 / 1310  variants
+
+  [somaticLD] Creating LD germline reference plot...
+  [somaticLD]   -> Plot saved successfully
+  [somaticLD] LD refinement completed
+[Main] Preparing final output matrices...
+[Main]   -> Final somatic variants:  1310 
+[Main]   -> dt_phase rows:  47273 
+[Main]   -> Matching rows in dt_phase:  1310 / 1310 
+[Main]   -> Successfully extracted  1310  variants to mut_mat
+[Main] Saving results...
+[Main]   -> Saved .putativeSNVs.csv
+[Main]   -> Saved .germlineTwoLoci_model.csv
+[Main]   -> Saved .germlineTrioLoci_model.csv
+[Main]   -> Saved .SNV_mat.RDS
+[Main] Saving diagnostic report...
+[Main]   -> Diagnostic log saved to: /projectnb/paxlab/presh/projects/spatial_atac/Data/variant_calling/lowseq/somatic/chr13.diagnostics.csv 
+
+========================================
+LD Refinement Analysis Complete!
+Results saved to: /projectnb/paxlab/presh/projects/spatial_atac/Data/variant_calling/lowseq/somatic/ 
+========================================
+[Main] EXIT STATUS: SUCCESS (exit code 0)
+========================================
+Rscript /projectnb/paxlab/presh/software/Monopogen/apps/../src/LDrefinement.R  /projectnb/paxlab/presh/projects/spatial_atac/Data/variant_calling/lowseq/somatic/chr13.gl.filter.hc.cell.mat.gz /projectnb/paxlab/presh/projects/spatial_atac/Data/variant_calling/lowseq/somatic/ chr13

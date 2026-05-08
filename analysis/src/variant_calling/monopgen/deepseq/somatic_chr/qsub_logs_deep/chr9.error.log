@@ -1,0 +1,232 @@
+/var/spool/sge/scc-tc3/job_scripts/4279188: line 1: /projectnb/paxlab/presh/projects/spatial_atac/analysis/src/monopgen/deepseq/somatic_chr/qsub_chr9.sh#!/bin/bash: No such file or directory
+========================================
+Job started at Tue Apr 14 09:09:32 EDT 2026
+Chromosome: chr9
+Node: scc-tc3
+========================================
+Starting chr9 at Tue Apr 14 09:09:32 EDT 2026
+Python: /projectnb/paxlab/presh/env/conda_env/monopgen_env/bin/python
+Python version: Python 3.8.20
+Running command...
+[2026-04-14 09:09:33,659] INFO     Monopogen.py Get feature information from sequencing data...
+[2026-04-14 09:19:32,308] INFO     Monopogen.py Success! See instructions above.
+[2026-04-14 09:19:33,387] INFO     Monopogen.py Collect single cell level information from sequencing data...
+multiprocessing.pool.RemoteTraceback: 
+"""
+Traceback (most recent call last):
+  File "/projectnb/paxlab/presh/env/conda_env/monopgen_env/lib/python3.8/multiprocessing/pool.py", line 125, in worker
+    result = (True, func(*args, **kwds))
+  File "/projectnb/paxlab/presh/env/conda_env/monopgen_env/lib/python3.8/multiprocessing/pool.py", line 48, in mapstar
+    return list(map(*args))
+  File "/projectnb/paxlab/presh/software/Monopogen/src/somatic.py", line 323, in bam2mat
+    mat = pd.read_csv(mat_infile, sep="\t", header=None)
+  File "/projectnb/paxlab/presh/env/conda_env/monopgen_env/lib/python3.8/site-packages/pandas/io/parsers/readers.py", line 912, in read_csv
+    return _read(filepath_or_buffer, kwds)
+  File "/projectnb/paxlab/presh/env/conda_env/monopgen_env/lib/python3.8/site-packages/pandas/io/parsers/readers.py", line 577, in _read
+    parser = TextFileReader(filepath_or_buffer, **kwds)
+  File "/projectnb/paxlab/presh/env/conda_env/monopgen_env/lib/python3.8/site-packages/pandas/io/parsers/readers.py", line 1407, in __init__
+    self._engine = self._make_engine(f, self.engine)
+  File "/projectnb/paxlab/presh/env/conda_env/monopgen_env/lib/python3.8/site-packages/pandas/io/parsers/readers.py", line 1679, in _make_engine
+    return mapping[engine](f, **self.options)
+  File "/projectnb/paxlab/presh/env/conda_env/monopgen_env/lib/python3.8/site-packages/pandas/io/parsers/c_parser_wrapper.py", line 93, in __init__
+    self._reader = parsers.TextReader(src, **kwds)
+  File "pandas/_libs/parsers.pyx", line 557, in pandas._libs.parsers.TextReader.__cinit__
+pandas.errors.EmptyDataError: No columns to parse from file
+"""
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/projectnb/paxlab/presh/software/Monopogen/src/Monopogen.py", line 340, in <module>
+    main()
+  File "/projectnb/paxlab/presh/software/Monopogen/src/Monopogen.py", line 333, in main
+    args.func(args)
+  File "/projectnb/paxlab/presh/software/Monopogen/src/Monopogen.py", line 172, in somatic
+    result = pool.map(bam2mat, joblst)
+  File "/projectnb/paxlab/presh/env/conda_env/monopgen_env/lib/python3.8/multiprocessing/pool.py", line 364, in map
+    return self._map_async(func, iterable, mapstar, chunksize).get()
+  File "/projectnb/paxlab/presh/env/conda_env/monopgen_env/lib/python3.8/multiprocessing/pool.py", line 771, in get
+    raise self._value
+pandas.errors.EmptyDataError: No columns to parse from file
+[2026-04-14 09:48:40,056] INFO     Monopogen.py Run LD refinement ...
+
+Attaching package: ‘ggplot2’
+
+The following object is masked from ‘package:e1071’:
+
+    element
+
+
+Attaching package: ‘reshape2’
+
+The following objects are masked from ‘package:data.table’:
+
+    dcast, melt
+
+Error in fread(mat_gz, fill = TRUE, verbose = FALSE, nThread = 8) : 
+  File '/projectnb/paxlab/presh/projects/spatial_atac/Data/variant_calling/deepseq/somatic/chr9.gl.filter.hc.cell.mat.gz' does not exist or is non-readable. getwd()=='/projectnb/paxlab/presh/projects/spatial_atac/analysis/src/monopgen/deepseq'
+Calls: fread -> stopf -> raise_condition -> signal
+Execution halted
+[2026-04-14 09:48:42,895] ERROR    Monopogen.py In LDrefinement step chr9 failed!
+[2026-04-14 09:48:42,895] ERROR    Monopogen.py Failed! See instructions above.
+
+Python script exit code: 1
+ERROR: chr9 failed with exit code 1 at Tue Apr 14 09:48:42 EDT 2026
+========================================
+========================================
+Job started at Tue Apr 14 10:08:08 EDT 2026
+Chromosome: chr9
+Node: scc-tc3
+========================================
+Starting chr9 at Tue Apr 14 10:08:08 EDT 2026
+Python: /projectnb/paxlab/presh/env/conda_env/monopgen_env/bin/python
+Python version: Python 3.8.20
+Running command...
+[2026-04-14 10:08:09,994] INFO     Monopogen.py Collect single cell level information from sequencing data...
+multiprocessing.pool.RemoteTraceback: 
+"""
+Traceback (most recent call last):
+  File "/projectnb/paxlab/presh/env/conda_env/monopgen_env/lib/python3.8/multiprocessing/pool.py", line 125, in worker
+    result = (True, func(*args, **kwds))
+  File "/projectnb/paxlab/presh/env/conda_env/monopgen_env/lib/python3.8/multiprocessing/pool.py", line 48, in mapstar
+    return list(map(*args))
+  File "/projectnb/paxlab/presh/software/Monopogen/src/somatic.py", line 323, in bam2mat
+    mat = pd.read_csv(mat_infile, sep="\t", header=None)
+  File "/projectnb/paxlab/presh/env/conda_env/monopgen_env/lib/python3.8/site-packages/pandas/io/parsers/readers.py", line 912, in read_csv
+    return _read(filepath_or_buffer, kwds)
+  File "/projectnb/paxlab/presh/env/conda_env/monopgen_env/lib/python3.8/site-packages/pandas/io/parsers/readers.py", line 577, in _read
+    parser = TextFileReader(filepath_or_buffer, **kwds)
+  File "/projectnb/paxlab/presh/env/conda_env/monopgen_env/lib/python3.8/site-packages/pandas/io/parsers/readers.py", line 1407, in __init__
+    self._engine = self._make_engine(f, self.engine)
+  File "/projectnb/paxlab/presh/env/conda_env/monopgen_env/lib/python3.8/site-packages/pandas/io/parsers/readers.py", line 1679, in _make_engine
+    return mapping[engine](f, **self.options)
+  File "/projectnb/paxlab/presh/env/conda_env/monopgen_env/lib/python3.8/site-packages/pandas/io/parsers/c_parser_wrapper.py", line 93, in __init__
+    self._reader = parsers.TextReader(src, **kwds)
+  File "pandas/_libs/parsers.pyx", line 557, in pandas._libs.parsers.TextReader.__cinit__
+pandas.errors.EmptyDataError: No columns to parse from file
+"""
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/projectnb/paxlab/presh/software/Monopogen/src/Monopogen.py", line 340, in <module>
+    main()
+  File "/projectnb/paxlab/presh/software/Monopogen/src/Monopogen.py", line 333, in main
+    args.func(args)
+  File "/projectnb/paxlab/presh/software/Monopogen/src/Monopogen.py", line 172, in somatic
+    result = pool.map(bam2mat, joblst)
+  File "/projectnb/paxlab/presh/env/conda_env/monopgen_env/lib/python3.8/multiprocessing/pool.py", line 364, in map
+    return self._map_async(func, iterable, mapstar, chunksize).get()
+  File "/projectnb/paxlab/presh/env/conda_env/monopgen_env/lib/python3.8/multiprocessing/pool.py", line 771, in get
+    raise self._value
+pandas.errors.EmptyDataError: No columns to parse from file
+[2026-04-14 10:38:23,407] INFO     Monopogen.py Run LD refinement ...
+
+Attaching package: ‘ggplot2’
+
+The following object is masked from ‘package:e1071’:
+
+    element
+
+
+Attaching package: ‘reshape2’
+
+The following objects are masked from ‘package:data.table’:
+
+    dcast, melt
+
+Error in fread(mat_gz, fill = TRUE, verbose = FALSE, nThread = 8) : 
+  File '/projectnb/paxlab/presh/projects/spatial_atac/Data/variant_calling/deepseq/somatic/chr9.gl.filter.hc.cell.mat.gz' does not exist or is non-readable. getwd()=='/projectnb/paxlab/presh/projects/spatial_atac/analysis/src/monopgen/deepseq'
+Calls: fread -> stopf -> raise_condition -> signal
+Execution halted
+[2026-04-14 10:38:25,982] ERROR    Monopogen.py In LDrefinement step chr9 failed!
+[2026-04-14 10:38:25,982] ERROR    Monopogen.py Failed! See instructions above.
+
+Python script exit code: 1
+ERROR: chr9 failed with exit code 1 at Tue Apr 14 10:38:26 EDT 2026
+========================================
+Job started at Tue Apr 14 11:04:34 EDT 2026
+[2026-04-14 11:04:36,250] INFO     Monopogen.py Get feature information from sequencing data...
+[2026-04-14 11:14:34,264] INFO     Monopogen.py Success! See instructions above.
+[2026-04-14 11:14:35,616] INFO     Monopogen.py Collect single cell level information from sequencing data...
+multiprocessing.pool.RemoteTraceback: 
+"""
+Traceback (most recent call last):
+  File "/projectnb/paxlab/presh/env/conda_env/monopgen_env/lib/python3.8/multiprocessing/pool.py", line 125, in worker
+    result = (True, func(*args, **kwds))
+  File "/projectnb/paxlab/presh/env/conda_env/monopgen_env/lib/python3.8/multiprocessing/pool.py", line 48, in mapstar
+    return list(map(*args))
+  File "/projectnb/paxlab/presh/software/Monopogen/src/somatic.py", line 323, in bam2mat
+    mat = pd.read_csv(mat_infile, sep="\t", header=None)
+  File "/projectnb/paxlab/presh/env/conda_env/monopgen_env/lib/python3.8/site-packages/pandas/io/parsers/readers.py", line 912, in read_csv
+    return _read(filepath_or_buffer, kwds)
+  File "/projectnb/paxlab/presh/env/conda_env/monopgen_env/lib/python3.8/site-packages/pandas/io/parsers/readers.py", line 577, in _read
+    parser = TextFileReader(filepath_or_buffer, **kwds)
+  File "/projectnb/paxlab/presh/env/conda_env/monopgen_env/lib/python3.8/site-packages/pandas/io/parsers/readers.py", line 1407, in __init__
+    self._engine = self._make_engine(f, self.engine)
+  File "/projectnb/paxlab/presh/env/conda_env/monopgen_env/lib/python3.8/site-packages/pandas/io/parsers/readers.py", line 1679, in _make_engine
+    return mapping[engine](f, **self.options)
+  File "/projectnb/paxlab/presh/env/conda_env/monopgen_env/lib/python3.8/site-packages/pandas/io/parsers/c_parser_wrapper.py", line 93, in __init__
+    self._reader = parsers.TextReader(src, **kwds)
+  File "pandas/_libs/parsers.pyx", line 557, in pandas._libs.parsers.TextReader.__cinit__
+pandas.errors.EmptyDataError: No columns to parse from file
+"""
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/projectnb/paxlab/presh/software/Monopogen/src/Monopogen.py", line 340, in <module>
+    main()
+  File "/projectnb/paxlab/presh/software/Monopogen/src/Monopogen.py", line 333, in main
+    args.func(args)
+  File "/projectnb/paxlab/presh/software/Monopogen/src/Monopogen.py", line 172, in somatic
+    result = pool.map(bam2mat, joblst)
+  File "/projectnb/paxlab/presh/env/conda_env/monopgen_env/lib/python3.8/multiprocessing/pool.py", line 364, in map
+    return self._map_async(func, iterable, mapstar, chunksize).get()
+  File "/projectnb/paxlab/presh/env/conda_env/monopgen_env/lib/python3.8/multiprocessing/pool.py", line 771, in get
+    raise self._value
+pandas.errors.EmptyDataError: No columns to parse from file
+Job started at Tue Apr 14 12:11:43 EDT 2026
+[2026-04-14 12:11:44,358] INFO     Monopogen.py Get feature information from sequencing data...
+[2026-04-14 12:21:50,024] INFO     Monopogen.py Success! See instructions above.
+[2026-04-14 12:21:51,291] INFO     Monopogen.py Collect single cell level information from sequencing data...
+[2026-04-14 12:47:32,958] INFO     Monopogen.py Success! See instructions above.
+[2026-04-14 12:47:34,729] INFO     Monopogen.py Run LD refinement ...
+
+Attaching package: ‘ggplot2’
+
+The following object is masked from ‘package:e1071’:
+
+    element
+
+
+Attaching package: ‘reshape2’
+
+The following objects are masked from ‘package:data.table’:
+
+    dcast, melt
+
+`geom_smooth()` using method = 'loess' and formula = 'y ~ x'
+[2026-04-14 13:19:40,056] INFO     Monopogen.py Success! See instructions above.
+Job started at Sat Apr 18 06:14:09 EDT 2026
+[2026-04-18 06:14:10,245] INFO     Monopogen.py Get feature information from sequencing data...
+[2026-04-18 06:22:58,297] INFO     Monopogen.py Success! See instructions above.
+[2026-04-18 06:22:59,378] INFO     Monopogen.py Collect single cell level information from sequencing data...
+[2026-04-18 12:42:57,840] INFO     Monopogen.py Success! See instructions above.
+[2026-04-18 12:43:00,485] INFO     Monopogen.py Run LD refinement ...
+
+Attaching package: ‘ggplot2’
+
+The following object is masked from ‘package:e1071’:
+
+    element
+
+
+Attaching package: ‘reshape2’
+
+The following objects are masked from ‘package:data.table’:
+
+    dcast, melt
+
+`geom_smooth()` using method = 'loess' and formula = 'y ~ x'
+[2026-04-18 13:59:02,692] INFO     Monopogen.py Success! See instructions above.

@@ -1,0 +1,44 @@
+Job started at Tue Apr 14 18:17:13 EDT 2026
+[2026-04-14 18:17:14,492] INFO     Monopogen.py Get feature information from sequencing data...
+[2026-04-14 18:28:53,955] INFO     Monopogen.py Success! See instructions above.
+[2026-04-14 18:28:54,873] INFO     Monopogen.py Collect single cell level information from sequencing data...
+[2026-04-14 18:59:09,842] INFO     Monopogen.py Success! See instructions above.
+[2026-04-14 18:59:10,950] INFO     Monopogen.py Run LD refinement ...
+
+Attaching package: ‘ggplot2’
+
+The following object is masked from ‘package:e1071’:
+
+    element
+
+
+Attaching package: ‘reshape2’
+
+The following objects are masked from ‘package:data.table’:
+
+    dcast, melt
+
+`geom_smooth()` using method = 'loess' and formula = 'y ~ x'
+[2026-04-14 19:25:28,228] INFO     Monopogen.py Success! See instructions above.
+Job started at Sat Apr 18 03:17:00 EDT 2026
+[2026-04-18 03:17:06,439] INFO     Monopogen.py Get feature information from sequencing data...
+[2026-04-18 03:28:06,614] INFO     Monopogen.py Success! See instructions above.
+[2026-04-18 03:28:07,605] INFO     Monopogen.py Collect single cell level information from sequencing data...
+[2026-04-18 11:38:15,513] INFO     Monopogen.py Success! See instructions above.
+[2026-04-18 11:38:18,714] INFO     Monopogen.py Run LD refinement ...
+
+Attaching package: ‘ggplot2’
+
+The following object is masked from ‘package:e1071’:
+
+    element
+
+
+Attaching package: ‘reshape2’
+
+The following objects are masked from ‘package:data.table’:
+
+    dcast, melt
+
+`geom_smooth()` using method = 'loess' and formula = 'y ~ x'
+[2026-04-18 13:16:52,976] INFO     Monopogen.py Success! See instructions above.

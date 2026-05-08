@@ -1,0 +1,56 @@
+========================================
+Job started at Tue Apr 14 09:34:18 EDT 2026
+Chromosome: chr1
+Node: scc-tb2
+========================================
+Starting chr1 at Tue Apr 14 09:34:18 EDT 2026
+Python: /projectnb/paxlab/presh/env/conda_env/monopgen_env/bin/python
+Python version: Python 3.8.20
+Running command...
+[2026-04-14 09:34:21,000] INFO     Monopogen.py Get feature information from sequencing data...
+[2026-04-14 10:01:11,477] INFO     Monopogen.py Success! See instructions above.
+[2026-04-14 10:01:12,340] INFO     Monopogen.py Collect single cell level information from sequencing data...
+Job started at Tue Apr 14 14:08:26 EDT 2026
+[2026-04-14 14:08:27,706] INFO     Monopogen.py Get feature information from sequencing data...
+[2026-04-14 14:35:22,766] INFO     Monopogen.py Success! See instructions above.
+[2026-04-14 14:35:24,057] INFO     Monopogen.py Collect single cell level information from sequencing data...
+[2026-04-14 15:43:15,613] INFO     Monopogen.py Success! See instructions above.
+[2026-04-14 15:43:16,951] INFO     Monopogen.py Run LD refinement ...
+
+Attaching package: ‘ggplot2’
+
+The following object is masked from ‘package:e1071’:
+
+    element
+
+
+Attaching package: ‘reshape2’
+
+The following objects are masked from ‘package:data.table’:
+
+    dcast, melt
+
+`geom_smooth()` using method = 'loess' and formula = 'y ~ x'
+[2026-04-14 17:16:42,525] INFO     Monopogen.py Success! See instructions above.
+Job started at Fri Apr 17 01:48:50 EDT 2026
+[2026-04-17 01:48:58,562] INFO     Monopogen.py Get feature information from sequencing data...
+[2026-04-17 02:16:00,241] INFO     Monopogen.py Success! See instructions above.
+[2026-04-17 02:16:01,719] INFO     Monopogen.py Collect single cell level information from sequencing data...
+[2026-04-17 16:18:32,543] INFO     Monopogen.py Success! See instructions above.
+[2026-04-17 16:18:33,031] INFO     Monopogen.py Run LD refinement ...
+
+Attaching package: ‘ggplot2’
+
+The following object is masked from ‘package:e1071’:
+
+    element
+
+
+Attaching package: ‘reshape2’
+
+The following objects are masked from ‘package:data.table’:
+
+    dcast, melt
+
+`geom_smooth()` using method = 'loess' and formula = 'y ~ x'
+[2026-04-17 20:41:08,445] INFO     Monopogen.py Success! See instructions above.

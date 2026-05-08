@@ -1,0 +1,30 @@
+========================================
+Job started at Mon Apr 13 02:44:06 EDT 2026
+Chromosome: chr5
+Node: scc-tc1
+========================================
+Starting chr5 at Mon Apr 13 02:44:06 EDT 2026
+Python: /projectnb/paxlab/presh/env/conda_env/monopgen_env/bin/python
+Python version: Python 3.8.20
+Running command...
+[2026-04-13 02:44:07,809] INFO     Monopogen.py Run LD refinement ...
+
+Attaching package: ‘ggplot2’
+
+The following object is masked from ‘package:e1071’:
+
+    element
+
+
+Attaching package: ‘reshape2’
+
+The following objects are masked from ‘package:data.table’:
+
+    dcast, melt
+
+`geom_smooth()` using method = 'loess' and formula = 'y ~ x'
+[2026-04-13 04:57:27,557] INFO     Monopogen.py Success! See instructions above.
+
+Python script exit code: 0
+Finished chr5 successfully at Mon Apr 13 04:57:27 EDT 2026
+========================================

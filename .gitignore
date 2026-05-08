@@ -1,0 +1,26 @@
+# Large data and generated outputs
+Data/
+analysis/qsub_logs/
+analysis/ArchRLogs/
+analysis/comparison/
+analysis/plots/
+analysis/src/Rplots.pdf
+analysis/src/monopgen/**/qsub_logs*/
+analysis/src/monopgen/**/*.log
+analysis/src/monopgen/**/*.error.log
+
+# RStudio / editor artifacts
+.Rhistory
+.Rproj.user/
+.vscode/
+analysis/.vscode/
+analysis/.Rproj.user/
+
+# Python / notebook caches
+**/.ipynb_checkpoints/
+**/__pycache__/
+
+# Temporary backup files
+*.bak
+*.gl_backup
+*.tmp

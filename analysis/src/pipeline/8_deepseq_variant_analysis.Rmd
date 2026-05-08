@@ -1,0 +1,50 @@
+---
+title: "8_deepseq_variant_analysis"
+---
+
+
+
+
+# Somatic filtering 
+
+```{r}
+deepseq.som.path = '/projectnb/paxlab/presh/projects/spatial_atac/Data/variant_calling/deepseq/somatic'
+
+put.som.files <- list.files(deepseq.som.path, pattern = "putativeSNVs.csv", full.names = T)
+
+meta <- do.call(rbind, lapply(put.som.files, read.csv))
+
+mat.files = list.files(deepseq.som.path, pattern = ".SNV_mat.RDS", full.names = T)
+mat <- do.call(rbind, lapply(mat.files, readRDS))
+
+```
+
+Need to take  the first 8 barcodes to match the bam file! 
+
+
+# Filtering 
+
+```{r}
+meta_filter <-meta[meta$Depth_ref>5 & meta$Depth_alt>5, ]
+
+meta_filter <-meta_filter[meta_filter$BAF_alt<0.5, ]
+
+meta_filter <-meta_filter[meta_filter$LDrefine_merged_score>0.25 & !is.na(meta_filter$LDrefine_merged_score), ]
+snv_pass <- paste0(meta_filter$chr,":", meta_filter$pos, ":", meta_filter$Ref_allele,":", meta_filter$Alt_allele)
+mat <- mat[snv_pass,seq(19,ncol(mat),1)]
+colnames(mat) <- paste0(colnames(mat),"-1")
+```
+
+
+# Read in ArchR proj 
+
+
+
+
+
+
+
+
+
+
+

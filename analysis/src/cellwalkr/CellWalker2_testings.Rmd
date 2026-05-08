@@ -1,0 +1,2981 @@
+---
+title: "Spatial Multi-Omics Preprocessing for CellWalker2"
+author: "AI Assistant"
+date: "`r Sys.Date()`"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = T, warning = T, cache = FALSE, dev = "png", fig.width = 10, fig.height = 8)
+```
+
+
+```{r load functions, message=FALSE}
+# source('/projectnb/paxlab/phitro/CellWalkR2/R/all_graph_functions.R')
+# source('/projectnb/paxlab/phitro/CellWalkR2/R/adjusted_mapCellTypes_functions.R')
+
+.libPaths(c("/projectnb/paxlab/presh/env/R_4.5.2/ArchR_libs", "/projectnb/paxlab/presh/env/R_4.5.2/giotto_libs", .libPaths()))
+library(ArchR)
+library(Giotto)
+
+source("/projectnb/paxlab/presh/projects/spatial_atac/analysis/src/cellwalkr/all_graph_functions.R")
+source("/projectnb/paxlab/presh/projects/spatial_atac/analysis/src/cellwalkr/adjusted_mapCellTypes_functions.R")
+
+
+# Load reticulate and point to the new environment
+# library(reticulate)
+# Replace 'preshita' with your actual username if different
+# use_condaenv("/projectnb/paxlab/presh/env/conda_env/cellwalkr_env", required = TRUE)
+# Verify the correct Python version is being used
+# py_config()
+
+```
+
+# Preparing the data 
+```{r data paths}
+# Xenium RNA-seq data
+XENIUM_H5_PATH <- "/projectnb/paxlab/DATA/DriesSpatial/Xenium/output-XETG00253__0048833__488A__20241217__182301/cell_feature_matrix.h5"
+XENIUM_CELLS_CSV_PATH <- "/projectnb/paxlab/DATA/DriesSpatial/Xenium/output-XETG00253__0048833__488A__20241217__182301/cells.csv.gz"
+
+# Spatial ATAC-seq AnnData (.h5ad)
+ATAC_H5AD_PATH <- "/projectnb/paxlab/DATA/DriesSpatial/Atlasxomics/D1942_deepseq/ultima1942optimize/set1_vf25000-cr1-0-vi1-nc30/combined.h5ad"
+
+
+output_philipp <- "/projectnb/paxlab/phitro/processed_data"
+output_dir <- "/projectnb/paxlab/presh/projects/spatial_atac/Data/cellwalkr"
+if (!dir.exists(output_dir)) {
+  dir.create(output_dir, recursive = TRUE)
+}
+```
+
+
+```{r Execute Spatial Multi-Omics Preprocessing}
+# Define filtering parameters (adjust as per your data's spatial extent)
+my_filter_params <- list(
+  x_min_rna = 4700, x_max_rna = 10100, 
+  x_min_atac = -Inf, x_max_atac = Inf, # Keep ATAC x-range broad for imputation
+  y_min_rna = -Inf, y_max_rna = Inf, 
+  y_min_atac = 4000, y_max_atac = Inf,
+  proximity_radius = 50, 
+  min_neighbors_rna = 10, min_neighbors_atac = 5
+)
+
+# Run the full preprocessing pipeline
+preprocessed_data <- preprocessSpatialMultiomics(
+  rna_h5_path = XENIUM_H5_PATH,
+  cells_csv_path = XENIUM_CELLS_CSV_PATH,
+  atac_h5ad_path = ATAC_H5AD_PATH,
+  atac_x_col = "xcor", 
+  atac_y_col = "ycor", 
+  genome = "hg38", 
+  mirror_rna_y = TRUE, 
+  filter_params = my_filter_params
+)
+
+# Extract results
+seurat_obj_rna_preprocessed <- preprocessed_data$seurat_obj_rna
+rna_spatial_coords_filtered <- preprocessed_data$rna_spatial_coords
+atac_counts_matrix_filtered <- preprocessed_data$atac_counts_matrix
+atac_peaks_gr_filtered <- preprocessed_data$atac_peaks_gr
+atac_spatial_coords_filtered <- preprocessed_data$atac_spatial_coords
+
+saveRDS(seurat_obj_rna_preprocessed, file.path(output_dir, 'seurat_obj_rna_preprocessed.rds'))
+saveRDS(rna_spatial_coords_filtered, file.path(output_dir, 'rna_spatial_coords_filtered.rds'))
+saveRDS(atac_counts_matrix_filtered, file.path(output_dir, 'atac_counts_matrix_filtered.rds'))
+saveRDS(atac_peaks_gr_filtered, file.path(output_dir, 'atac_peaks_gr_filtered.rds'))
+saveRDS(atac_spatial_coords_filtered, file.path(output_dir, 'atac_spatial_coords_filtered.rds'))
+
+message("Summary of preprocessed data:")
+message("  RNA Seurat object (genes x cells): ", paste(dim(seurat_obj_rna_preprocessed), collapse = "x"))
+message("  RNA spatial coordinates (cells x 2): ", paste(dim(rna_spatial_coords_filtered), collapse = "x"))
+message("  ATAC counts matrix (cells x peaks): ", paste(dim(atac_counts_matrix_filtered), collapse = "x"))
+message("  ATAC peaks GRanges: ", length(atac_peaks_gr_filtered), " regions")
+message("  ATAC spatial coordinates (cells x 2): ", paste(dim(atac_spatial_coords_filtered), collapse = "x"))
+
+# Plot the filtered spatial data
+p_filtered_spatial <- plot_spatial_rna_atac(
+  rna_spatial_coords_filtered, 
+  atac_spatial_coords_filtered, 
+  same_limits = TRUE,
+  rna_title = "Filtered Spatial RNA-seq",
+  atac_title = "Filtered Spatial ATAC-seq"
+)
+print(p_filtered_spatial)
+```
+
+
+# Reading in the data 
+
+```{r}
+seurat_obj_rna_preprocessed <- readRDS( file.path(output_dir, 'seurat_obj_rna_preprocessed.rds'))
+rna_spatial_coords_filtered <- readRDS( file.path(output_dir, 'rna_spatial_coords_filtered.rds'))
+atac_counts_matrix_filtered <- readRDS(file.path(output_dir, 'atac_counts_matrix_filtered.rds'))
+atac_peaks_gr_filtered <-  readRDS(file.path(output_dir, 'atac_peaks_gr_filtered.rds'))
+atac_spatial_coords_filtered <- readRDS( file.path(output_dir, 'atac_spatial_coords_filtered.rds'))
+
+```
+
+
+
+# Registering the data
+
+## Manual affine 
+```{r}
+registerSpatialCoordinates <- function(coords1, coords2, plot = TRUE) {
+  
+  message("Registering spatial coordinates using tissue alignment...")
+  
+  p1 <- as.matrix(coords1[, c("x", "y")])
+  p2 <- as.matrix(coords2[, c("x", "y")])
+  
+  message(paste("coords1:", nrow(p1), "points"))
+  message(paste("coords2:", nrow(p2), "points"))
+  
+  # Center both tissues
+  center1 <- colMeans(p1)
+  center2 <- colMeans(p2)
+  p1_centered <- sweep(p1, 2, center1)
+  p2_centered <- sweep(p2, 2, center2)
+  
+  message(paste("Center p1:", round(center1[1]), ",", round(center1[2])))
+  message(paste("Center p2:", round(center2[1]), ",", round(center2[2])))
+  
+  # Compute principal axes (SVD)
+  svd1 <- svd(p1_centered)
+  svd2 <- svd(p2_centered)
+  
+  # Get orientation (first principal component)
+  angle1 <- atan2(svd1$v[2, 1], svd1$v[1, 1])
+  angle2 <- atan2(svd2$v[2, 1], svd2$v[1, 1])
+  
+  # Find shortest rotation angle
+  rotation_angle <- angle2 - angle1
+  
+  # Normalize to [-pi, pi]
+  while (rotation_angle > pi) rotation_angle <- rotation_angle - 2*pi
+  while (rotation_angle < -pi) rotation_angle <- rotation_angle + 2*pi
+  
+  # If close to 180°, try the opposite direction
+  if (abs(rotation_angle) > pi/2) {
+    message("Large rotation detected, checking alternate orientation...")
+    # Try flipping p2's principal axis
+    angle2_alt <- atan2(-svd2$v[2, 1], -svd2$v[1, 1])
+    rotation_angle_alt <- angle2_alt - angle1
+    while (rotation_angle_alt > pi) rotation_angle_alt <- rotation_angle_alt - 2*pi
+    while (rotation_angle_alt < -pi) rotation_angle_alt <- rotation_angle_alt + 2*pi
+    
+    if (abs(rotation_angle_alt) < abs(rotation_angle)) {
+      message("Using alternate orientation")
+      rotation_angle <- rotation_angle_alt
+    }
+  }
+  
+  message(paste("Angle p1:", round(angle1 * 180/pi, 1), "degrees"))
+  message(paste("Angle p2:", round(angle2 * 180/pi, 1), "degrees"))
+  message(paste("Rotation needed:", round(rotation_angle * 180/pi, 1), "degrees"))
+  
+  # Build rotation matrix
+  cos_a <- cos(rotation_angle)
+  sin_a <- sin(rotation_angle)
+  rotation <- matrix(c(cos_a, -sin_a, sin_a, cos_a), 2, 2)
+  
+  # Compute scale from variance ratio
+  var1 <- sum(svd1$d^2) / nrow(p1_centered)
+  var2 <- sum(svd2$d^2) / nrow(p2_centered)
+  scale_factor <- sqrt(var2 / var1)
+  
+  message(paste("Variance p1:", round(var1, 2)))
+  message(paste("Variance p2:", round(var2, 2)))
+  message(paste("Scale factor:", round(scale_factor, 4)))
+  
+  # Transform p1 to p2 space
+  # 1. Scale
+  p1_scaled <- p1_centered * scale_factor
+  # 2. Rotate
+  p1_rotated <- p1_scaled %*% rotation
+  # 3. Translate to p2 center
+  p1_transformed <- sweep(p1_rotated, 2, center2, FUN = "+")
+  
+  message("Transformation complete")
+  
+  # Plot
+  if (plot) {
+    par(mfrow = c(1, 2), mar = c(4, 4, 2, 1))
+    
+    # Before
+    xlim_before <- range(c(p1[, 1], p2[, 1]))
+    ylim_before <- range(c(p1[, 2], p2[, 2]))
+    
+    plot(NA, xlim = xlim_before, ylim = ylim_before, 
+         main = "Before Registration", xlab = "X", ylab = "Y", asp = 1)
+    points(p1, col = rgb(1, 0, 0, 0.15), pch = 16, cex = 0.1)
+    points(p2, col = rgb(0, 0, 1, 0.15), pch = 16, cex = 0.1)
+    legend("topright", c("RNA", "ATAC"), col = c("red", "blue"), pch = 16, cex = 0.8)
+    
+    # After
+    xlim_after <- range(c(p1_transformed[, 1], p2[, 1]))
+    ylim_after <- range(c(p1_transformed[, 2], p2[, 2]))
+    
+    plot(NA, xlim = xlim_after, ylim = ylim_after,
+         main = "After Registration", xlab = "X", ylab = "Y", asp = 1)
+    points(p1_transformed, col = rgb(1, 0, 0, 0.15), pch = 16, cex = 0.1)
+    points(p2, col = rgb(0, 0, 1, 0.15), pch = 16, cex = 0.1)
+    legend("topright", c("RNA (transformed)", "ATAC"), col = c("red", "blue"), pch = 16, cex = 0.8)
+    
+    par(mfrow = c(1, 1))
+  }
+  
+  list(
+    coords1_transformed = p1_transformed,
+    coords1_original = p1,
+    coords2_original = p2,
+    rotation_angle = rotation_angle,
+    scale_factor = scale_factor,
+    center1 = center1,
+    center2 = center2
+  )
+}
+```
+
+```{r}
+result <- registerSpatialCoordinates(
+  coords1 = rna_spatial_coords_filtered,
+  coords2 = atac_spatial_coords_filtered,
+  plot = TRUE
+)
+
+rna_aligned <- result$coords1_transformed
+
+cat("Rotation:", round(result$rotation_angle * 180/pi, 1), "degrees\n")
+cat("Scale:", result$scale_factor, "\n")
+```
+
+
+## Fine-tuning - needs work 
+
+```{r}
+registerSpatialCoordinates <- function(coords1, coords2, plot = TRUE, fine_tune_edges = TRUE) {
+  
+  message("Registering spatial coordinates using tissue alignment...")
+  
+  p1 <- as.matrix(coords1[, c("x", "y")])
+  p2 <- as.matrix(coords2[, c("x", "y")])
+  
+  message(paste("coords1:", nrow(p1), "points"))
+  message(paste("coords2:", nrow(p2), "points"))
+  
+  # Center both tissues
+  center1 <- colMeans(p1)
+  center2 <- colMeans(p2)
+  p1_centered <- sweep(p1, 2, center1)
+  p2_centered <- sweep(p2, 2, center2)
+  
+  # Compute principal axes (SVD)
+  svd1 <- svd(p1_centered)
+  svd2 <- svd(p2_centered)
+  
+  # Get orientation
+  angle1 <- atan2(svd1$v[2, 1], svd1$v[1, 1])
+  angle2 <- atan2(svd2$v[2, 1], svd2$v[1, 1])
+  
+  rotation_angle <- angle2 - angle1
+  while (rotation_angle > pi) rotation_angle <- rotation_angle - 2*pi
+  while (rotation_angle < -pi) rotation_angle <- rotation_angle + 2*pi
+  
+  # Try alternate orientation if needed
+  if (abs(rotation_angle) > pi/2) {
+    angle2_alt <- atan2(-svd2$v[2, 1], -svd2$v[1, 1])
+    rotation_angle_alt <- angle2_alt - angle1
+    while (rotation_angle_alt > pi) rotation_angle_alt <- rotation_angle_alt - 2*pi
+    while (rotation_angle_alt < -pi) rotation_angle_alt <- rotation_angle_alt + 2*pi
+    if (abs(rotation_angle_alt) < abs(rotation_angle)) rotation_angle <- rotation_angle_alt
+  }
+  
+  # Build rotation matrix
+  cos_a <- cos(rotation_angle)
+  sin_a <- sin(rotation_angle)
+  rotation <- matrix(c(cos_a, -sin_a, sin_a, cos_a), 2, 2)
+  
+  # Compute scale
+  var1 <- sum(svd1$d^2) / nrow(p1_centered)
+  var2 <- sum(svd2$d^2) / nrow(p2_centered)
+  scale_factor <- sqrt(var2 / var1)
+  
+  message(paste("Rotation:", round(rotation_angle * 180/pi, 1), "degrees"))
+  message(paste("Scale factor:", round(scale_factor, 4)))
+  
+  # Global transformation
+  p1_scaled <- p1_centered * scale_factor
+  p1_rotated <- p1_scaled %*% rotation
+  p1_transformed <- sweep(p1_rotated, 2, center2, FUN = "+")
+  
+  # Fine-tune edges if requested
+  if (fine_tune_edges) {
+    message("Fine-tuning tissue edges...")
+    p1_transformed <- finetuneEdges(p1_transformed, p2, p1, center1, rotation, scale_factor, center2)
+  }
+  
+  message("Transformation complete")
+  
+  # Plot with better visibility
+  if (plot) {
+    par(mfrow = c(1, 2), mar = c(4, 4, 2, 1))
+    
+    # Before
+    xlim_before <- range(c(p1[, 1], p2[, 1]))
+    ylim_before <- range(c(p1[, 2], p2[, 2]))
+    
+    plot(NA, xlim = xlim_before, ylim = ylim_before, 
+         main = "Before Registration", xlab = "X", ylab = "Y", asp = 1, bg = "white")
+    points(p1, col = rgb(1, 0, 0, 0.2), pch = 16, cex = 0.15)
+    points(p2, col = rgb(0.2, 0.4, 1, 0.4), pch = 16, cex = 0.15)  # More visible blue
+    legend("topright", c("RNA", "ATAC"), col = c("red", rgb(0.2, 0.4, 1, 0.8)), pch = 16, cex = 0.8)
+    
+    # After - plot ATAC first, then RNA on top
+    xlim_after <- range(c(p1_transformed[, 1], p2[, 1]))
+    ylim_after <- range(c(p1_transformed[, 2], p2[, 2]))
+    
+    plot(NA, xlim = xlim_after, ylim = ylim_after,
+         main = "After Registration", xlab = "X", ylab = "Y", asp = 1, bg = "white")
+    points(p2, col = rgb(0.2, 0.4, 1, 0.4), pch = 16, cex = 0.15)  # Plot ATAC first (blue)
+    points(p1_transformed, col = rgb(1, 0, 0, 0.2), pch = 16, cex = 0.15)  # RNA on top (red)
+    legend("topright", c("RNA (transformed)", "ATAC"), col = c("red", rgb(0.2, 0.4, 1, 0.8)), pch = 16, cex = 0.8)
+    
+    par(mfrow = c(1, 1))
+  }
+  
+  list(
+    coords1_transformed = p1_transformed,
+    rotation_angle = rotation_angle,
+    scale_factor = scale_factor
+  )
+}
+
+# Helper function for edge fine-tuning
+finetuneEdges <- function(p1_transformed, p2, p1_orig, center1, rotation, scale_factor, center2) {
+  
+  # Find top and bottom edges (based on Y coordinate)
+  y_orig <- p1_orig[, 2]
+  y_top_idx <- which(y_orig > quantile(y_orig, 0.9))    # Top 10%
+  y_bottom_idx <- which(y_orig < quantile(y_orig, 0.1)) # Bottom 10%
+  
+  message(paste("  Top edge: ", length(y_top_idx), "points"))
+  message(paste("  Bottom edge:", length(y_bottom_idx), "points"))
+  
+  # For each edge, compute local adjustment
+  p1_transformed <- adjustEdgeRegion(p1_transformed, p2, y_top_idx, "top")
+  p1_transformed <- adjustEdgeRegion(p1_transformed, p2, y_bottom_idx, "bottom")
+  
+  p1_transformed
+}
+
+# Helper: Adjust specific edge region
+adjustEdgeRegion <- function(p1_transformed, p2, idx, edge_name) {
+  
+  if (length(idx) == 0) return(p1_transformed)
+  
+  # Get points in this region
+  p1_edge <- p1_transformed[idx, ]
+  
+  # Find nearest neighbors in p2 for this region
+  library(FNN)
+  nn <- get.knnx(p2, p1_edge, k = 5)
+  
+  # Compute average displacement needed
+  displacements <- matrix(0, nrow(p1_edge), 2)
+  for (i in 1:nrow(p1_edge)) {
+    neighbors <- p2[nn$nn.index[i, ], ]
+    avg_neighbor <- colMeans(neighbors)
+    displacements[i, ] <- avg_neighbor - p1_edge[i, ]
+  }
+  
+  # Smooth displacement field
+  smooth_disp <- apply(displacements, 2, function(x) {
+    ksmooth(1:length(x), x, kernel = "box", bandwidth = max(5, length(x)/20))$y
+  })
+  
+  # Apply smooth displacement (with falloff from edge)
+  p1_transformed[idx, ] <- p1_edge + smooth_disp * 1  # 50% of suggested correction
+  
+  p1_transformed
+}
+```
+
+
+```{r}
+result <- registerSpatialCoordinates(
+  coords1 = rna_spatial_coords_filtered,
+  coords2 = atac_spatial_coords_filtered,
+  plot = TRUE,
+  fine_tune_edges = TRUE  # Enable edge fine-tuning
+)
+
+rna_aligned <- result$coords1_transformed
+
+
+# Test different edge layer thicknesses and find the best
+result <- registerSpatialCoordinates(
+  coords1 = rna_spatial_coords_filtered,
+  coords2 = atac_spatial_coords_filtered,
+  edge_layer_pcts = c(0.05, 0.1, 0.15, 0.2, 0.25),  # Test 5%, 10%, 15%, 20%, 25%
+  test_best = TRUE,  # Enable testing
+  plot = TRUE
+)
+
+# Extract best result
+rna_aligned <- result$coords1_transformed
+best_pct <- result$best_edge_layer_pct
+
+cat("Best edge layer percentage:", best_pct * 100, "%\n")
+print(result$metrics)
+```
+
+
+```{r}
+result <- registerSpatialCoordinates(
+  coords1 = rna_spatial_coords_filtered,
+  coords2 = atac_spatial_coords_filtered,
+  edge_layer_pcts = c(0.05, 0.1, 0.15, 0.2, 0.25),  # Test 5%, 10%, 15%, 20%, 25%
+  test_best = TRUE,  # Enable testing
+  plot = TRUE
+)
+```
+
+
+
+```{r}
+# Single refinement pass (FIXED)
+refineTransformationPass <- function(p1_transformed, p2, p1_orig, edge_layer_pct, adj_factor) {
+  
+  library(FNN)
+  
+  # Find nearest neighbors for ALL points
+  nn <- get.knnx(p2, p1_transformed, k = 20)
+  
+  # For each point, compute weighted average of nearest neighbors
+  adjustments <- matrix(0, nrow(p1_transformed), 2)
+  for (i in 1:nrow(p1_transformed)) {
+    neighbors <- p2[nn$nn.index[i, ], ]
+    distances <- nn$nn.dist[i, ]
+    
+    # Weight by inverse distance (closer neighbors have more weight)
+    weights <- 1 / (distances + 1e-6)
+    weights <- weights / sum(weights)
+    
+    weighted_avg <- colSums(neighbors * weights)
+    adjustments[i, ] <- weighted_avg - p1_transformed[i, ]
+  }
+  
+  # Identify edge points and increase adjustment there
+  y_orig <- p1_orig[, 2]
+  y_range <- max(y_orig) - min(y_orig)
+  threshold_top <- max(y_orig) - (edge_layer_pct * y_range)
+  threshold_bottom <- min(y_orig) + (edge_layer_pct * y_range)
+  
+  edge_idx <- which(y_orig > threshold_top | y_orig < threshold_bottom)
+  
+  # Apply larger adjustment to edge points
+  adjustment_factor <- rep(adj_factor * 0.3, nrow(p1_transformed))  # Base adjustment
+  adjustment_factor[edge_idx] <- adj_factor  # Stronger at edges
+  
+  # Smooth adjustment field
+  smooth_adj <- apply(adjustments, 2, function(x) {
+    if (length(unique(x)) > 1) {
+      smooth.spline(1:length(x), x, spar = 0.3)$y
+    } else {
+      x
+    }
+  })
+  
+  # Apply smoothed adjustment
+  p1_transformed + (smooth_adj * adjustment_factor)
+}
+
+# Fixed initialization in main function
+registerSpatialCoordinatesIterative <- function(coords1, coords2, 
+                                                 edge_layer_pcts = c(0.1, 0.15, 0.2, 0.25, 0.3),
+                                                 adjustment_factors = c(0.5, 0.7, 0.9),
+                                                 n_iterations = 5,
+                                                 test_best = TRUE) {
+  
+  library(FNN)
+  
+  message("Iterative registration with refinement...")
+  
+  p1 <- as.matrix(coords1[, c("x", "y")])
+  p2 <- as.matrix(coords2[, c("x", "y")])
+  
+  message(paste("coords1:", nrow(p1), "points"))
+  message(paste("coords2:", nrow(p2), "points"))
+  
+  # Global transformation
+  result_global <- computeGlobalTransform(p1, p2)
+  rotation <- result_global$rotation
+  scale_factor <- result_global$scale_factor
+  center1 <- result_global$center1
+  center2 <- result_global$center2
+  p1_centered <- result_global$p1_centered
+  
+  message(paste("Global rotation:", round(result_global$rotation_angle * 180/pi, 1), "degrees"))
+  message(paste("Global scale:", round(scale_factor, 4)))
+  
+  # Test different combinations
+  best_error <- Inf
+  best_result <- NULL
+  results_comparison <- data.frame()
+  
+  for (edge_pct in edge_layer_pcts) {
+    for (adj_factor in adjustment_factors) {
+      
+      message(paste("\nTesting edge_layer:", edge_pct*100, "% + adjustment:", adj_factor))
+      
+      # Start with global transform (FIXED - proper order of operations)
+      p1_scaled <- p1_centered * scale_factor
+      p1_rotated <- p1_scaled %*% rotation
+      p1_transformed <- sweep(p1_rotated, 2, center2, FUN = "+")
+      
+      # Apply iterative refinement
+      for (iter in 1:n_iterations) {
+        p1_transformed <- refineTransformationPass(
+          p1_transformed, p2, p1, edge_pct, adj_factor
+        )
+      }
+      
+      # Compute error
+      nn <- get.knnx(p2, p1_transformed, k = 1)
+      dists <- sqrt(rowSums((p1_transformed - p2[nn$nn.index[, 1], ])^2))
+      overall_error <- mean(dists)
+      
+      # Edge-specific error
+      y_orig <- p1[, 2]
+      threshold_top <- max(y_orig) - (edge_pct * (max(y_orig) - min(y_orig)))
+      threshold_bottom <- min(y_orig) + (edge_pct * (max(y_orig) - min(y_orig)))
+      edge_idx <- which(y_orig > threshold_top | y_orig < threshold_bottom)
+      edge_error <- if (length(edge_idx) > 0) mean(dists[edge_idx]) else NA
+      
+      # Core error (non-edge)
+      core_idx <- which(y_orig <= threshold_top & y_orig >= threshold_bottom)
+      core_error <- if (length(core_idx) > 0) mean(dists[core_idx]) else NA
+      
+      message(paste("  Overall error:", round(overall_error, 2)))
+      message(paste("  Edge error:", round(edge_error, 2)))
+      message(paste("  Core error:", round(core_error, 2)))
+      
+      results_comparison <- rbind(results_comparison, data.frame(
+        edge_layer_pct = edge_pct,
+        adjustment_factor = adj_factor,
+        overall_error = overall_error,
+        edge_error = edge_error,
+        core_error = core_error
+      ))
+      
+      if (overall_error < best_error) {
+        best_error <- overall_error
+        best_result <- list(
+          p1_transformed = p1_transformed,
+          edge_pct = edge_pct,
+          adj_factor = adj_factor,
+          errors = list(
+            overall = overall_error,
+            edge = edge_error,
+            core = core_error
+          )
+        )
+      }
+    }
+  }
+  
+  message(paste("\n*** BEST RESULT ***"))
+  message(paste("Edge layer:", best_result$edge_pct * 100, "%"))
+  message(paste("Adjustment factor:", best_result$adj_factor))
+  message(paste("Overall error:", round(best_result$errors$overall, 2)))
+  message(paste("Edge error:", round(best_result$errors$edge, 2)))
+  message(paste("Core error:", round(best_result$errors$core, 2)))
+  
+  # Create plots
+  plots <- createComparisonPlots(p1, p2, best_result$p1_transformed, 
+                                  results_comparison, best_result)
+  
+  list(
+    coords1_transformed = best_result$p1_transformed,
+    best_edge_layer = best_result$edge_pct,
+    best_adjustment = best_result$adj_factor,
+    errors = best_result$errors,
+    results_comparison = results_comparison,
+    patchwork_plot = plots$combined,
+    overlay_plot = plots$overlay,
+    error_plot = plots$error_heatmap
+  )
+}
+```
+
+
+
+```{r}
+result <- registerSpatialCoordinatesIterative(
+  coords1 = rna_spatial_coords_filtered,
+  coords2 = atac_spatial_coords_filtered,
+  edge_layer_pcts = c(0.1, 0.15, 0.2, 0.25, 0.3),
+  adjustment_factors = c(0.5, 0.7, 0.9, 1.0),
+  n_iterations = 10,  # More iterations = better overlap
+  test_best = TRUE
+)
+
+# View results
+result$patchwork_plot
+
+# Save
+ggsave("registration_iterative.png", result$patchwork_plot, 
+       width = 14, height = 10, dpi = 300)
+
+# Check error metrics
+print(result$errors)
+
+# Access transformed coordinates
+rna_aligned <- result$coords1_transformed
+```
+
+
+
+
+
+```{r}
+createFinalPlots <- function(p1, p2, p1_transformed, errors, final_error) {
+  
+  library(ggplot2)
+  library(patchwork)
+  
+  # Plot RNA FIRST (red), then ATAC (blue) on top, both with high transparency
+  # This way both are visible through each other
+  
+  df_rna <- data.frame(x = p1_transformed[, 1], y = p1_transformed[, 2], type = "RNA")
+  df_atac <- data.frame(x = p2[, 1], y = p2[, 2], type = "ATAC")
+  df_overlay <- rbind(df_atac, df_rna)  # ATAC first, RNA on top (reversed)
+  
+  plot_overlay <- ggplot(df_overlay, aes(x = x, y = y, color = type)) +
+    # Plot in reverse order: RNA first (larger size so visible), ATAC on top (smaller)
+    geom_point(data = df_rna, aes(x = x, y = y), color = "#FF6B6B", size = 0.5, alpha = 0.3) +
+    geom_point(data = df_atac, aes(x = x, y = y), color = "#3366FF", size = 0.6, alpha = 0.4) +
+    coord_fixed() +
+    theme_minimal() +
+    labs(title = "Non-linear Registration Result\n(Red: RNA, Blue: ATAC)",
+         x = "X", y = "Y") +
+    theme(
+      plot.title = element_text(face = "bold", size = 12, hjust = 0.5),
+      plot.subtitle = element_text(size = 10)
+    ) +
+    annotate("text", x = Inf, y = Inf, 
+             label = paste("Mean error:", round(final_error, 1)), 
+             hjust = 1.05, vjust = 1.5, size = 4, color = "red")
+  
+  # Convergence plot
+  df_convergence <- data.frame(
+    iteration = 1:length(errors),
+    error = errors[1:length(errors)]
+  )
+  
+  plot_convergence <- ggplot(df_convergence, aes(x = iteration, y = error)) +
+    geom_line(color = "#FF6B6B", linewidth = 1.2) +
+    geom_point(color = "#FF6B6B", size = 2) +
+    geom_hline(yintercept = 2, color = "green", linetype = "dashed", linewidth = 1) +
+    annotate("text", x = Inf, y = 2, label = "Target: 2%", 
+             hjust = 1.1, vjust = -0.5, color = "green", size = 3) +
+    theme_minimal() +
+    labs(title = "Convergence: Mean Distance per Iteration",
+         x = "Iteration", y = "Mean Distance") +
+    theme(
+      plot.title = element_text(face = "bold", size = 11, hjust = 0.5)
+    )
+  
+  # Distance distribution
+  nn <- get.knnx(p2, p1_transformed, k = 1)
+  dists <- sqrt(rowSums((p1_transformed - p2[nn$nn.index[, 1], ])^2))
+  
+  plot_dist <- ggplot(data.frame(distance = dists), aes(x = distance)) +
+    geom_histogram(bins = 100, fill = "#95E1D3", color = "black", linewidth = 0.2) +
+    geom_vline(aes(xintercept = mean(dists)), color = "red", linetype = "dashed", linewidth = 1) +
+    geom_vline(aes(xintercept = quantile(dists, 0.9)), color = "orange", linetype = "dashed", linewidth = 1) +
+    labs(title = paste("Final Distance Distribution\nMean:", round(mean(dists), 1), 
+                       "| 90th pct:", round(quantile(dists, 0.9), 1)),
+         x = "Distance to Nearest ATAC", y = "Frequency") +
+    theme_minimal() +
+    theme(
+      plot.title = element_text(face = "bold", size = 10, hjust = 0.5)
+    )
+  
+  combined <- (plot_overlay / plot_convergence) | plot_dist +
+    plot_layout(widths = c(1, 1)) +
+    plot_annotation(
+      title = "Non-linear Registration: Constrained Warping",
+      subtitle = paste("Final mean error:", round(final_error, 1)),
+      theme = theme(plot.title = element_text(face = "bold", size = 14, hjust = 0.5),
+                    plot.subtitle = element_text(size = 12, hjust = 0.5))
+    )
+  
+  list(
+    overlay = plot_overlay,
+    convergence = plot_convergence,
+    combined = combined
+  )
+}
+
+registerSpatialCoordinatesSimple <- function(coords1, coords2, 
+                                              n_iterations = 10,
+                                              adjustment_strength = 0.1) {
+  
+  library(FNN)
+  
+  message("Simple iterative registration...")
+  
+  p1 <- as.matrix(coords1[, c("x", "y")])
+  p2 <- as.matrix(coords2[, c("x", "y")])
+  
+  # Global initialization
+  result_global <- computeGlobalTransform(p1, p2)
+  p1_centered <- p1 - result_global$center1
+  p1_scaled <- p1_centered * result_global$scale_factor
+  p1_rotated <- p1_scaled %*% result_global$rotation
+  p1_transformed <- sweep(p1_rotated, 2, result_global$center2, FUN = "+")
+  
+  errors <- numeric(n_iterations)
+  
+  for (iter in 1:n_iterations) {
+    
+    # Find nearest neighbors
+    nn <- get.knnx(p2, p1_transformed, k = 1)
+    dists <- sqrt(rowSums((p1_transformed - p2[nn$nn.index[, 1], ])^2))
+    mean_error <- mean(dists)
+    errors[iter] <- mean_error
+    
+    message(paste("Iteration", iter, "- Error:", round(mean_error, 2)))
+    
+    # Simple local adjustment: pull each RNA point toward its nearest ATAC neighbor
+    target_pts <- p2[nn$nn.index[, 1], ]
+    adjustment <- (target_pts - p1_transformed) * adjustment_strength
+    
+    p1_transformed <- p1_transformed + adjustment
+    
+    if (mean_error < 5) break
+  }
+  
+  # Final metrics
+  nn_final <- get.knnx(p2, p1_transformed, k = 1)
+  dists_final <- sqrt(rowSums((p1_transformed - p2[nn_final$nn.index[, 1], ])^2))
+  
+  final_error <- mean(dists_final)
+  
+  message(paste("\nFinal error:", round(final_error, 2)))
+  
+  # Plots
+  plots <- createFinalPlots(p1, p2, p1_transformed, errors, final_error)
+  
+  list(
+    coords1_transformed = p1_transformed,
+    mean_error = final_error,
+    iteration_errors = errors,
+    patchwork_plot = plots$combined,
+    overlay_plot = plots$overlay
+  )
+}
+```
+
+
+
+# Pseudo-bulk RNA 
+
+```{r Pseudo-Bulk RNA}
+# --- Create Smoothed RNA Data (Pseudo-bulk simulation) and its graph ---
+message("\n--- Creating Smoothed RNA Data for Pseudo-bulk Simulation ---")
+smoothed_rna_list <- simulatePseudoBulkRNA(
+  seurat_obj = seurat_obj_rna_preprocessed,
+  rna_spatial_coords = rna_spatial_coords_filtered, # Use the filtered spatial coordinates
+  sample_sizes = c(2, 3, 5, 10), # Default sample sizes from the function definition
+  method = "mean" # Using mean aggregation
+)
+
+# Check if the requested simulation (S5) was successful
+if (!"S5" %in% names(smoothed_rna_list) || ncol(smoothed_rna_list$S5) == 0 || nrow(smoothed_rna_list$S5) == 0) {
+  stop("Simulation of Smoothed RNA data (S5) failed or resulted in an empty matrix. Check simulatePseudoBulkRNA function or input parameters.")
+}
+
+smoothed_rna_expression <- smoothed_rna_list$S5
+message("Selected S5 smoothed RNA expression. Dimensions (genes x cells): ", paste(dim(smoothed_rna_expression), collapse="x"))
+
+# Align metadata to the cells in smoothed_rna_expression
+meta_for_smoothed_rna <- seurat_obj_rna_preprocessed@meta.data
+meta_for_smoothed_rna <- meta_for_smoothed_rna[colnames(smoothed_rna_expression), , drop = FALSE]
+
+# Create Seurat object from the smoothed expression matrix (ensure it's counts-like)
+smoothed_counts <- as.matrix(smoothed_rna_expression) # genes x cells
+
+smoothed_seurat_obj <- Seurat::CreateSeuratObject(counts = smoothed_counts, meta.data = meta_for_smoothed_rna)
+# Basic Seurat preprocessing similar to original pipeline (Normalize, FindVariable, Scale, PCA)
+DefaultAssay(smoothed_seurat_obj) <- "RNA"
+smoothed_seurat_obj <- Seurat::NormalizeData(smoothed_seurat_obj, verbose = FALSE)
+smoothed_seurat_obj <- Seurat::FindVariableFeatures(smoothed_seurat_obj, nfeatures = min(2000, nrow(smoothed_seurat_obj)), verbose = FALSE)
+smoothed_seurat_obj <- Seurat::ScaleData(smoothed_seurat_obj, verbose = FALSE)
+smoothed_seurat_obj <- Seurat::RunPCA(smoothed_seurat_obj, verbose = FALSE)
+
+message("Seurat object created for Smoothed RNA data. Cells: ", ncol(smoothed_seurat_obj), ", Genes: ", nrow(smoothed_seurat_obj))
+```
+
+
+# Generate Separate RNA and ATAC Cell Graphs
+```{r Generate Separate RNA and ATAC Cell Graphs}
+# Define parameters for graph construction
+graph_params <- list(
+  rna_feature_dims = 1:30,
+  rna_feature_k_neighbors = 20,
+  atac_pca_dims = 30,       
+  atac_k_neighbors = 20
+)
+
+# Generate separate RNA and ATAC graphs
+separate_graphs <- generateSeparateModalGraphs(
+  seurat_obj_rna_preprocessed = seurat_obj_rna_preprocessed,
+  atac_counts_matrix_filtered = atac_counts_matrix_filtered,
+  atac_peaks_gr_filtered = atac_peaks_gr_filtered,
+  genome = "hg38",
+  rna_feature_dims = graph_params$rna_feature_dims,
+  rna_feature_k_neighbors = graph_params$rna_feature_k_neighbors,
+  atac_pca_dims = graph_params$atac_pca_dims,
+  atac_k_neighbors = graph_params$atac_k_neighbors
+)
+
+rna_graph <- separate_graphs$rna_graph
+atac_graph <- separate_graphs$atac_graph
+atac_gene_activity_matrix_final <- separate_graphs$atac_gene_activity_matrix # Store for potential future use
+
+message("RNA Graph dimensions: ", paste(dim(rna_graph), collapse = "x"))
+message("ATAC Graph dimensions: ", paste(dim(atac_graph), collapse = "x"))
+
+
+# --- Create cell-to-cell graph from the Smoothed RNA data ---
+message("Creating cell-to-cell graph from Smoothed RNA data...")
+# Ensure graph_params is defined and accessible; it should be defined before this chunk.
+if (!exists("graph_params")) {
+  stop("`graph_params` list is not defined. It's required for graph construction parameters.")
+}
+smoothed_rna_graph <- createRNACellGraph(
+  seurat_obj = smoothed_seurat_obj,
+  dims = graph_params$rna_feature_dims, # Use same dimensions as original RNA graph
+  k_neighbors = graph_params$rna_feature_k_neighbors # Use same k as original RNA graph
+)
+
+# Handle potential NULL or empty graph
+if (is.null(smoothed_rna_graph) || Matrix::nnzero(smoothed_rna_graph) == 0) {
+  warning("Smoothed RNA graph could not be created meaningfully. It will be represented as zeros.")
+  # Get cell IDs from the smoothed Seurat object to create an empty graph of correct dimensions
+  smoothed_rna_cell_ids <- colnames(smoothed_seurat_obj)
+  smoothed_rna_graph <- Matrix::Matrix(0, nrow = length(smoothed_rna_cell_ids), ncol = length(smoothed_rna_cell_ids), sparse = TRUE, dimnames = list(smoothed_rna_cell_ids, smoothed_rna_cell_ids))
+}
+
+message("Smoothed RNA graph created. Dimensions: ", paste(dim(smoothed_rna_graph), collapse = "x"))
+```
+
+## save graphs
+```{r Save graph}
+# Create a list that includes all graphs and relevant data
+all_graphs_and_data <- list(
+  separate_graphs = separate_graphs, # Original RNA and ATAC graphs
+  smoothed_rna_graph = smoothed_rna_graph, # The new smoothed RNA graph
+  # Include other relevant data that might be needed later, e.g., preprocessed data objects
+  seurat_obj_rna_preprocessed = seurat_obj_rna_preprocessed,
+  rna_spatial_coords_filtered = rna_spatial_coords_filtered,
+  atac_counts_matrix_filtered = atac_counts_matrix_filtered,
+  atac_peaks_gr_filtered = atac_peaks_gr_filtered,
+  atac_spatial_coords_filtered = atac_spatial_coords_filtered,
+  atac_gene_activity_matrix_final = atac_gene_activity_matrix_final
+)
+
+# Save the combined object
+file_path <- file.path(output_dir, "all_spatial_graphs_and_data.rds") # Updated filename for clarity
+message("Saving all graphs and related data to: ", file_path)
+saveRDS(all_graphs_and_data, file = file_path)
+```
+
+
+# Loading graph 
+```{r Load Graph}
+file_path <- file.path(output_philipp, "all_spatial_graphs_and_data.rds") # Updated filename for clarity
+
+# Load Graph
+all_graphs_and_data <- readRDS(file = file_path)
+separate_graphs = all_graphs_and_data$separate_graphs
+smoothed_rna_graph = all_graphs_and_data$smoothed_rna_graph
+rna_graph <- separate_graphs$rna_graph
+atac_graph <- separate_graphs$atac_graph
+atac_gene_activity_matrix_final <- separate_graphs$atac_gene_activity_matrix
+```
+
+
+# Run CellWalker2 mapping between RNA labels and ATAC annotations
+```{r Run CellWalker2 mapping between RNA labels and ATAC annotations}
+# Uses atac_gene_activity_matrix_final (cells x genes from ATAC gene-activity) and rna_graph.
+# Runs mapCellTypes using:
+#   - label set 1: RNA-derived labels from computeTypeEdges (rna_label_edges)
+#   - label set 2: ATAC-derived labels (motifs or simple peak clusters) computed below
+#
+# Produces tidy outputs: cellWalk2_res (mapCellTypes result), info_rna_to_atac (matrix), df_info (tidy)
+
+# 1) Ensure RNA labels exist (cluster + markers)
+message("Preparing RNA label edges (markers from Seurat clusters)...")
+if (!"seurat_clusters" %in% colnames(seurat_obj_rna_preprocessed@meta.data)) {
+  # run clustering if missing
+  seurat_obj_rna_preprocessed <- Seurat::FindNeighbors(seurat_obj_rna_preprocessed, dims = graph_params$rna_feature_dims)
+  seurat_obj_rna_preprocessed <- Seurat::FindClusters(seurat_obj_rna_preprocessed, resolution = 0.5)
+}
+Idents(seurat_obj_rna_preprocessed) <- "seurat_clusters"
+markers_rna <- tryCatch({
+  Seurat::FindAllMarkers(seurat_obj_rna_preprocessed, only.pos = TRUE, min.pct = 0.1, logfc.threshold = 0.25)
+}, error = function(e) {
+  warning("FindAllMarkers failed: ", e$message); NULL
+})
+if (is.null(markers_rna) || nrow(markers_rna) == 0) {
+  # fallback simple markers: take top variable genes
+  vgenes <- Seurat::VariableFeatures(seurat_obj_rna_preprocessed)
+  vgenes <- head(vgenes, 200)
+  clusts <- unique(seurat_obj_rna_preprocessed$seurat_clusters)
+  # assign simple markers (first 10 genes per cluster) as mock markers
+  mock_list <- lapply(seq_along(clusts), function(i) {
+    data.frame(gene = head(vgenes, 10), cluster = as.character(clusts[i]), avg_log2FC = runif(10, 0.5, 1.5), stringsAsFactors=FALSE)
+  })
+  markers_rna_df <- do.call(rbind, mock_list)
+} else {
+  markers_rna_df <- as.data.frame(markers_rna)[, c("gene","cluster","avg_log2FC")]
+}
+# normalized expression for computeTypeEdges expects gene x cell scaled expression (expr_norm from processRNASeq)
+# Use Seurat scaled data (log-normalized data) as exprNorm (genes x cells)
+rna_expr_norm <- Seurat::GetAssayData(seurat_obj_rna_preprocessed, assay = "RNA", layer = "data")
+# computeTypeEdges expects genes x cells with rownames genes and colnames cells
+rna_label_edges <- changedCellWalkercomputeTypeEdges(rna_expr_norm, markers_rna_df)
+message("RNA label edges: ", paste(dim(rna_label_edges), collapse = " x "))
+
+
+# 2) Build / load ATAC labelEdges from atac_gene_activity_matrix_final (cells x genes)
+if (!exists("atac_gene_activity_matrix_final"))
+  stop("atac_gene_activity_matrix_final not found. Provide this matrix before running mapping.")
+
+message("Preparing ATAC label edges from atac_gene_activity_matrix_final (no spatial).")
+
+atac_label_edges_rds <- file.path(output_philipp, "atac_label_edges_3.rds")
+atac_ga_for_graph_rds <- file.path(output_philipp, "atac_gene_activity_matrix_for_graph.rds")
+
+# optional: cache filtered / reduced matrix for reuse in both labelEdges + graph
+if (file.exists(atac_ga_for_graph_rds)) {
+  atac_gene_activity_matrix_for_graph <- readRDS(atac_ga_for_graph_rds)
+} else {
+  # Use sparse-friendly variance calculation
+  gene_var_atac <- sparseMatrixStats::colVars(atac_gene_activity_matrix_final)
+  
+  keep_genes_idx_atac <- which(gene_var_atac > 0)
+  atac_gene_activity_matrix_for_graph <- atac_gene_activity_matrix_final[, keep_genes_idx_atac, drop = FALSE]
+  
+  saveRDS(atac_gene_activity_matrix_for_graph, atac_ga_for_graph_rds)
+}
+
+# Option A: motif-based labelEdges
+if (file.exists(atac_label_edges_rds)) {
+  message("Loading cached ATAC label edges from: ", atac_label_edges_rds)
+  atac_label_edges <- readRDS(atac_label_edges_rds)
+} else if (exists("motif_regions_df") && exists("atac_peaks_gr_filtered") && exists("atac_counts_matrix_filtered")) {
+  message("Building ATAC label edges from motif_regions_df (peak overlaps)...")
+  atac_label_edges <- createLabelEdgesFromRegions(
+    motif_regions_df,
+    atac_peaks_gr_filtered,
+    atac_counts_matrix_filtered
+  )
+  saveRDS(atac_label_edges, atac_label_edges_rds)
+  message("Saved ATAC label edges (motif-based) to: ", atac_label_edges_rds)
+} else {
+  # Option B: pseudo-clustering on reduced matrix with ROBUST parameters
+  atac_label_edges <- buildAtacLabelEdgesFromGeneActivity(
+    atac_gene_activity_matrix_for_graph,
+    n_clusters = 30,           # Increased from 15
+    min_cluster_size = 50,     # Merge small clusters
+    n_init = 50,               # Try 50 different initializations
+    min_weight = 0.05,         # Filter weak edges
+    pca_dims = 30,             # Use 30 PCs
+    balance_clusters = TRUE    # Prevent dominance (Option 2)
+  )
+  
+  message("ATAC label edges (robust clustering): ",
+          paste(dim(atac_label_edges), collapse = " x "))
+  saveRDS(atac_label_edges, atac_label_edges_rds)
+  message("Saved ATAC label edges (robust) to: ", atac_label_edges_rds)
+}
+
+
+# 3) Compute / load ATAC cell graph from filtered gene-activity matrix (cells x genes)
+message("Computing ATAC cell graph from ATAC gene-activity matrix...")
+
+atac_graph_rds <- file.path(output_philipp, "atac_graph_from_gene_activity_.rds")
+
+if (file.exists(atac_graph_rds)) {
+  message("Loading cached ATAC graph from: ", atac_graph_rds)
+  atac_graph_res <- readRDS(atac_graph_rds)
+} else {
+  atac_graph_res <- tryCatch({
+    createATACCellGraph(
+      atac_gene_activity_matrix_for_graph,
+      atac_pca_dims    = graph_params$atac_pca_dims,
+      atac_k_neighbors = graph_params$atac_k_neighbors
+    )
+  }, error = function(e){
+    warning("createATACCellGraph failed: ", e$message)
+    NULL
+  })
+  saveRDS(atac_graph_res, atac_graph_rds)
+  message("Saved ATAC graph result (graph+pca) to: ", atac_graph_rds)
+}
+
+if (is.list(atac_graph_res)) {
+  atac_graph <- atac_graph_res$graph
+} else if (is(atac_graph_res, "Matrix")) {
+  atac_graph <- atac_graph_res
+} else {
+  atac_graph <- NULL
+}
+if (is.null(atac_graph)) warning("ATAC cell graph not available; mapping may use only RNA graph.")
+
+
+# 4) Construct Direct Feature-Based Joint Graph (No Harmony)
+message("Building direct kNN bridge between RNA and ATAC in shared feature space...")
+
+library(FNN)
+library(Matrix)
+library(org.Hs.eg.db)
+
+# A. Translate ATAC Entrez IDs -> Gene Symbols (same as before)
+entrez_ids <- colnames(atac_gene_activity_matrix_final)
+id_map <- mapIds(org.Hs.eg.db, keys = entrez_ids, column = "SYMBOL", keytype = "ENTREZID", multiVals = "first")
+valid_indices <- which(!is.na(id_map))
+atac_ga_symbols <- atac_gene_activity_matrix_final[, valid_indices]
+colnames(atac_ga_symbols) <- id_map[valid_indices]
+
+# B. Extract shared feature space
+atac_mtx <- t(atac_ga_symbols)  # genes x cells
+common_features <- intersect(rownames(seurat_obj_rna_preprocessed), rownames(atac_mtx))
+message("Common features for bridge: ", length(common_features))
+
+if (length(common_features) < 10) {
+  stop("Too few common features (", length(common_features), ") to build meaningful bridge.")
+}
+
+# C. Normalize both modalities in shared space
+rna_subset <- Seurat::GetAssayData(seurat_obj_rna_preprocessed, assay = "RNA", layer = "data")[common_features, ]
+atac_subset <- atac_mtx[common_features, ]
+
+# Simple depth normalization for ATAC (to match RNA's log-normalization scale)
+atac_subset_norm <- sweep(atac_subset, 2, colSums(atac_subset), "/") * median(colSums(rna_subset))
+atac_subset_norm <- log1p(atac_subset_norm)
+
+# D. Scale both to z-scores for fair comparison
+rna_subset_scaled <- t(scale(t(as.matrix(rna_subset))))
+atac_subset_scaled <- t(scale(t(as.matrix(atac_subset_norm))))
+
+# Replace NaN (from zero-variance genes) with 0
+rna_subset_scaled[is.na(rna_subset_scaled)] <- 0
+atac_subset_scaled[is.na(atac_subset_scaled)] <- 0
+
+# E. Build cross-modality kNN bridge
+k_bridge <- 100  # Number of cross-modality neighbors
+
+message("Finding RNA -> ATAC nearest neighbors (k=", k_bridge, ")...")
+rna_to_atac_nn <- get.knnx(
+  data = t(atac_subset_scaled),   # ATAC cells as reference
+  query = t(rna_subset_scaled),   # RNA cells as query
+  k = k_bridge
+)
+
+message("Finding ATAC -> RNA nearest neighbors (k=", k_bridge, ")...")
+atac_to_rna_nn <- get.knnx(
+  data = t(rna_subset_scaled),    # RNA cells as reference
+  query = t(atac_subset_scaled),  # ATAC cells as query
+  k = k_bridge
+)
+
+# F. Convert to similarity scores (inverse distance with Gaussian kernel)
+compute_similarity <- function(distances) {
+  sigma <- median(distances, na.rm = TRUE)
+  if (sigma <= 0) sigma <- 1
+  pmin(1, exp(- (distances^2) / (2 * sigma^2)))
+}
+
+rna_to_atac_sim <- compute_similarity(rna_to_atac_nn$nn.dist)
+atac_to_rna_sim <- compute_similarity(atac_to_rna_nn$nn.dist)
+
+# G. Build joint graph combining within-modality + cross-modality edges
+rna_cell_ids <- colnames(rna_subset)
+atac_cell_ids <- colnames(atac_subset)
+all_cell_ids <- c(rna_cell_ids, atac_cell_ids)
+n_rna <- length(rna_cell_ids)
+n_atac <- length(atac_cell_ids)
+n_total <- n_rna + n_atac
+
+# Initialize sparse joint graph
+joint_graph_triplets <- list()
+
+# 1. RNA within-modality graph (from your separate_graphs$rna_graph)
+if (!is.null(rna_graph) && nrow(rna_graph) > 0) {
+  rna_graph_aligned <- rna_graph[rna_cell_ids, rna_cell_ids]
+  rna_triplets <- summary(rna_graph_aligned)
+  joint_graph_triplets$rna_internal <- data.frame(
+    i = rna_triplets$i,
+    j = rna_triplets$j,
+    x = rna_triplets$x * 1.0  # weight = 1.0 for within-modality
+  )
+}
+
+# 2. ATAC within-modality graph (from your separate_graphs$atac_graph)
+if (!is.null(atac_graph) && nrow(atac_graph) > 0) {
+  atac_graph_aligned <- atac_graph[atac_cell_ids, atac_cell_ids]
+  atac_triplets <- summary(atac_graph_aligned)
+  joint_graph_triplets$atac_internal <- data.frame(
+    i = atac_triplets$i + n_rna,  # offset by RNA cells
+    j = atac_triplets$j + n_rna,
+    x = atac_triplets$x * 1.0
+  )
+}
+
+# 3. RNA -> ATAC bridge edges
+rna_to_atac_i <- rep(1:n_rna, each = k_bridge)
+rna_to_atac_j <- as.vector(rna_to_atac_nn$nn.index) + n_rna  # offset to ATAC block
+rna_to_atac_x <- as.vector(rna_to_atac_sim) * 0.3  # downweight cross-modality edges
+
+valid_bridge_1 <- rna_to_atac_j > n_rna & rna_to_atac_j <= n_total & rna_to_atac_x > 0
+joint_graph_triplets$rna_to_atac <- data.frame(
+  i = rna_to_atac_i[valid_bridge_1],
+  j = rna_to_atac_j[valid_bridge_1],
+  x = rna_to_atac_x[valid_bridge_1]
+)
+
+# 4. ATAC -> RNA bridge edges
+atac_to_rna_i <- rep((n_rna + 1):n_total, each = k_bridge)
+atac_to_rna_j <- as.vector(atac_to_rna_nn$nn.index)  # maps to RNA cells
+atac_to_rna_x <- as.vector(atac_to_rna_sim) * 0.3
+
+valid_bridge_2 <- atac_to_rna_j > 0 & atac_to_rna_j <= n_rna & atac_to_rna_x > 0
+joint_graph_triplets$atac_to_rna <- data.frame(
+  i = atac_to_rna_i[valid_bridge_2],
+  j = atac_to_rna_j[valid_bridge_2],
+  x = atac_to_rna_x[valid_bridge_2]
+)
+
+# Combine all triplets
+all_triplets <- do.call(rbind, joint_graph_triplets)
+
+# Symmetrize (take max of i->j and j->i)
+all_triplets_sym <- rbind(
+  all_triplets,
+  data.frame(i = all_triplets$j, j = all_triplets$i, x = all_triplets$x)
+)
+
+library(data.table)
+setDT(all_triplets_sym)
+all_triplets_sym <- all_triplets_sym[, .(x = max(x)), by = .(i, j)]
+
+# Build final sparse matrix
+joint_graph <- sparseMatrix(
+  i = all_triplets_sym$i,
+  j = all_triplets_sym$j,
+  x = all_triplets_sym$x,
+  dims = c(n_total, n_total),
+  dimnames = list(all_cell_ids, all_cell_ids)
+)
+
+# Ensure diagonal = 1
+diag(joint_graph) <- 1
+
+message("Joint graph constructed: ", n_total, " cells (", n_rna, " RNA + ", n_atac, " ATAC)")
+message("  Within-RNA edges: ", if(!is.null(joint_graph_triplets$rna_internal)) nrow(joint_graph_triplets$rna_internal) else 0)
+message("  Within-ATAC edges: ", if(!is.null(joint_graph_triplets$atac_internal)) nrow(joint_graph_triplets$atac_internal) else 0)
+message("  RNA->ATAC bridge edges: ", nrow(joint_graph_triplets$rna_to_atac))
+message("  ATAC->RNA bridge edges: ", nrow(joint_graph_triplets$atac_to_rna))
+
+# Register for mapping
+run_with_graphs <- list(joint_bridge = joint_graph)
+
+# H. Diagnostic Spectral Embedding (Fast, Works on Sparse Graphs)
+library(RSpectra)
+message("Computing spectral embedding for graph visualization...")
+
+# Compute Laplacian
+D <- Matrix::Diagonal(x = 1 / sqrt(Matrix::rowSums(joint_graph)))
+L_norm <- D %*% joint_graph %*% D
+
+# Compute top eigenvectors (like spectral clustering/PCA on graph)
+eigen_res <- RSpectra::eigs_sym(L_norm, k = 2, which = "LM")
+spectral_coords <- eigen_res$vectors
+
+plot_df <- data.frame(
+  Dim1 = spectral_coords[,1],
+  Dim2 = spectral_coords[,2],
+  modality = c(rep("RNA", n_rna), rep("ATAC", n_atac)),
+  cell_id = all_cell_ids
+)
+
+p_spectral <- ggplot(plot_df, aes(x = Dim1, y = Dim2, color = modality)) +
+  geom_point(alpha = 0.4, size = 0.6) +
+  theme_minimal() +
+  scale_color_manual(values = c("RNA" = "#E41A1C", "ATAC" = "#377EB8")) +
+  ggtitle("Joint Graph: Spectral Embedding") +
+  labs(x = "Spectral Dimension 1", y = "Spectral Dimension 2")
+
+print(p_spectral)
+ggsave(file.path(output_dir, "joint_graph_spectral_diagnostic_2.png"), 
+       p_spectral, width = 8, height = 7)
+
+
+library(RSpectra)
+library(uwot)
+
+# Compute more spectral dimensions (like PCA components)
+message("Computing spectral embedding for UMAP input...")
+
+D <- Matrix::Diagonal(x = 1 / sqrt(Matrix::rowSums(joint_graph)))
+L_norm <- D %*% joint_graph %*% D
+
+# Get more dimensions (e.g., 30-50, like PCA)
+n_dims <- 30
+eigen_res <- RSpectra::eigs_sym(L_norm, k = n_dims, which = "LM")
+spectral_embedding <- eigen_res$vectors
+
+# Run UMAP on spectral coordinates
+umap_coords <- umap(
+  spectral_embedding, 
+  n_neighbors = 30, 
+  min_dist = 0.3,
+  metric = "euclidean"
+)
+
+# Create plot dataframe
+plot_df <- data.frame(
+  UMAP1 = umap_coords[,1],
+  UMAP2 = umap_coords[,2],
+  modality = c(rep("RNA", n_rna), rep("ATAC", n_atac)),
+  cell_id = all_cell_ids
+)
+
+# Plot
+library(ggplot2)
+p_umap <- ggplot(plot_df, aes(x = UMAP1, y = UMAP2, color = modality)) +
+  geom_point(alpha = 0.5, size = 0.8) +
+  theme_minimal() +
+  scale_color_manual(values = c("RNA" = "#E41A1C", "ATAC" = "#377EB8")) +
+  ggtitle("Joint Graph UMAP: Are RNA and ATAC cells mixed?") +
+  labs(subtitle = paste0("Based on ", length(common_features), " shared features"))
+
+print(p_umap)
+ggsave(file.path(output_dir, "joint_graph_umap.png"), 
+       p_umap, width = 8, height = 7)
+
+
+
+```
+
+
+## saving spectral plot data 
+
+```{r}
+spectral.data =  p_spectral@data
+
+atac_df <- spectral.data[spectral.data$modality == "ATAC", ]
+rna_df  <- spectral.data[spectral.data$modality == "RNA", ]
+
+radius <- 0.0001 # set as neighborhood size
+radius <- as.numeric(radius)
+
+library(RANN)
+
+# ATAC as reference, RNA as query
+neighbors <- RANN::nn2(
+  data = atac_df[, c("Dim1", "Dim2")],
+  query = rna_df[, c("Dim1", "Dim2")],
+  searchtype = "radius", radius = radius
+)
+
+# Get all (rna_idx, atac_idx) pairs within radius
+neighbor_pairs <- which(neighbors$nn.idx > 0, arr.ind = TRUE)
+overlaps <- data.frame(
+  rna_idx = neighbor_pairs[, 1],
+  atac_idx = neighbors$nn.idx[neighbor_pairs],
+  rna_cell_id = rna_df$cell_id[neighbor_pairs[, 1]],
+  atac_cell_id = atac_df$cell_id[neighbors$nn.idx[neighbor_pairs]]
+)
+
+# Assume overlaps is your result from earlier steps, with indices for plot_df
+# For example, if you want the RNA side:
+overlap_points <- rbind(
+  atac_df[unique(overlaps$atac_idx), c("Dim1", "Dim2", "modality")],
+  rna_df[unique(overlaps$rna_idx), c("Dim1", "Dim2", "modality")]
+)
+
+
+library(ggplot2)
+
+p_spectral2 <- ggplot(spectral.data, aes(x = Dim1, y = Dim2, color = modality)) +
+  geom_point(alpha = 0.4, size = 0.6) +
+  theme_minimal() +
+  scale_color_manual(values = c("RNA" = "#E41A1C", "ATAC" = "#377EB8")) +
+  geom_point(data = overlap_points, 
+             aes(x = Dim1, y = Dim2), 
+             color = "gold",
+             size = 1.5,
+             shape = 21,
+             stroke = 0.8) +
+  ggtitle("Joint Graph: Spectral Embedding (with Overlaps Highlighted)") +
+  labs(x = "Spectral Dimension 1", y = "Spectral Dimension 2")
+
+print(p_spectral2)
+
+write.csv(overlap_points, file.path(output_dir, 'spectral_graph_common.csv'))
+
+
+atac_overlap_points <- data.frame(
+  cell_id = overlaps$atac_cell_id,
+  Dim1 = atac_df$Dim1[overlaps$atac_idx],
+  Dim2 = atac_df$Dim2[overlaps$atac_idx],
+  modality = "ATAC"
+)
+
+atac_overlap_points2 = atac_spatial_coords_filtered[atac_overlap_points$cell_id, ]
+
+# Visualizing this spatially 
+ggplot(atac_spatial_coords_filtered, aes(x = x, y = y)) +
+  geom_point(alpha = 0.4, size = 0.6) +
+  theme_minimal() +
+  # scale_color_manual(values = c("RNA" = "#E41A1C", "ATAC" = "#377EB8")) +
+  geom_point(data = atac_overlap_points2, 
+             aes(x = x, y = y), 
+             color = "gold",
+             size = 1.5,
+             shape = 21,
+             stroke = 0.8) +
+  ggtitle("Joint Graph: Spectral Embedding (with Overlaps Highlighted)") +
+  labs(x = "Spectral Dimension 1", y = "Spectral Dimension 2")
+
+
+```
+
+
+
+
+```{r}
+# 5) Run mapCellTypes for each chosen graph (Joint or Modality-Specific)
+map_results_rds <- file.path(output_philipp, "cellwalker2_map_results_list_joint_subset5k_5.rds")
+
+source("/projectnb/paxlab/phitro/CellWalkR2/R/adjusted_mapCellTypes_functions.R")
+
+if (file.exists(map_results_rds)) {
+  message("Loading cached mapCellTypes results from: ", map_results_rds)
+  map_results_list <- readRDS(map_results_rds)
+} else {
+  map_results_list <- list()
+
+  # Helper to make label matrices match the joint graph dimensions
+  expand_labels_to_graph <- function(le_mat, graph_names) {
+    new_mat <- matrix(0, nrow = length(graph_names), ncol = ncol(le_mat))
+    rownames(new_mat) <- graph_names
+    colnames(new_mat) <- colnames(le_mat)
+    
+    # Only fill rows where the barcode exists in the label matrix
+    common_cells <- intersect(graph_names, rownames(le_mat))
+    new_mat[common_cells, ] <- le_mat[common_cells, ]
+    return(new_mat)
+  }
+  
+  # Sync labels to the full joint graph names
+  full_rna_le  <- expand_labels_to_graph(rna_label_edges, rownames(joint_graph))
+  full_atac_le <- expand_labels_to_graph(atac_label_edges, rownames(joint_graph))
+  
+  # Prepare the final list for the mapping loop
+  labelEdgesList_for_map <- list(RNA = full_rna_le, ATAC = full_atac_le)
+  
+  for (graph_name in names(run_with_graphs)) {
+    cg_full <- run_with_graphs[[graph_name]]
+    message("Processing graph: ", graph_name, " (N=", nrow(cg_full), ")")
+
+    # 1. Prepare subset and modality groups
+    subset_obj <- subset_joint_cells_for_mapping(
+      cg      = cg_full,
+      rna_le  = rna_label_edges, 
+      atac_le = atac_label_edges,
+      max_cells = 5000L
+    )
+    
+    cg      <- subset_obj$graph
+    rna_le  <- subset_obj$rna_le
+    atac_le <- subset_obj$atac_le
+    mod_grp <- subset_obj$groups
+
+    # 2. Assemble and Clean Label List
+    # Ensure matrices are standard matrices (not sparse) for the rowSums check
+    rna_le_mat  <- as.matrix(rna_le)
+    atac_le_mat <- if(!is.null(atac_le)) as.matrix(atac_le) else NULL
+    
+    labelEdgesList_for_map <- list(RNA = rna_le_mat)
+    if (!is.null(atac_le_mat)) labelEdgesList_for_map$ATAC <- atac_le_mat
+    
+    # 3. Define groupsList with high-precision zero-checking
+    # We must ensure that any cell with NO connections (rowSum == 0) is group 0
+    # and that cells only belong to their respective modality group.
+    groupsList_for_map <- list(
+      RNA = ifelse(subset_obj$groups == 1 & rowSums(rna_le_mat) > 1e-10, 1, 0)
+    )
+    
+    if (!is.null(atac_le_mat)) {
+      groupsList_for_map$ATAC <- ifelse(subset_obj$groups == 2 & rowSums(atac_le_mat) > 1e-10, 2, 0)
+    }
+
+
+    # 4. Run mapCellTypes
+    library(future)
+    plan(multisession, workers = 8) 
+
+    message("  Calling mapCellTypes (joint mapping) ...")
+    cellWalk2_res <- mapCellTypes_(
+      cellGraph        = cg,
+      labelEdgesList   = labelEdgesList_for_map,
+      labelEdgeWeights = c(1, 1), # Equal weight to both modalities
+      compute.Zscore   = TRUE,
+      nround           = 100,
+      batch_size       = 20,           # rounds per batch
+      conv_threshold   = 0.01,         # convergence sensitivity
+      conv_window      = 20,           # window size
+      groupsList       = groupsList_for_map,
+      sampleDepth      = 10000,
+      parallel         = TRUE
+    )
+
+    map_results_list[[graph_name]] <- list(
+      cellGraphName   = graph_name,
+      result          = cellWalk2_res,
+      used_label_sets = labelEdgesList_for_map,
+      subset_cell_ids = subset_obj$cell_ids,
+      modality_groups = mod_grp
+    )
+  }
+  saveRDS(map_results_list, file = map_results_rds)
+}
+
+# 6) Tidy outputs (Updated to look for specific RNA -> ATAC mapping)
+summary_map <- function(cellWalk2_obj, labelEdgesList) {
+  inf_list <- cellWalk2_obj$infMat
+  z_list   <- cellWalk2_obj$zscore
+  
+  if (length(inf_list) == 0) {
+    warning("Influence Matrix is empty.")
+    return(NULL)
+  }
+  
+  # 1. Identify which list element is RNA -> ATAC
+  # We look for the matrix where rows match RNA labels and cols match ATAC labels
+  rna_labs  <- colnames(labelEdgesList$RNA)
+  atac_labs <- colnames(labelEdgesList$ATAC)
+  
+  target_idx <- NULL
+  for (i in seq_along(inf_list)) {
+    # We check if the rownames of the matrix exist in our RNA label set
+    if (any(rownames(inf_list[[i]]) %in% rna_labs) && 
+        any(colnames(inf_list[[i]]) %in% atac_labs)) {
+      target_idx <- i
+      break
+    }
+  }
+  
+  # Fallback if logic fails: just take the first one but avoid NA
+  if (is.null(target_idx)) {
+    message("Notice: Could not automatically match label names, using first available mapping.")
+    target_idx <- 1
+  }
+
+  # 2. Extract the data safely using single brackets if numeric or double if guaranteed
+  out <- list(
+    labelEdgeWeights = cellWalk2_obj$labelEdgeWeights,
+    info_1_to_2      = inf_list[[target_idx]],
+    z_1_to_2         = if(!is.null(z_list)) z_list[[target_idx]] else NULL
+  )
+  
+  # 3. Create tidy dataframe
+  df_info <- as.data.frame(as.table(as.matrix(out$info_1_to_2)))
+  colnames(df_info) <- c("label_rna", "label_atac", "influence")
+  
+  if (!is.null(out$z_1_to_2)) {
+    df_z <- as.data.frame(as.table(as.matrix(out$z_1_to_2)))
+    colnames(df_z) <- c("label_rna", "label_atac", "zscore")
+    out$df_info_z <- merge(df_info, df_z, by = c("label_rna", "label_atac"))
+  } else {
+    out$df_info_z <- df_info
+  }
+  
+  return(out)
+}
+
+# Run summary on the joint run specifically
+chosen_run <- "joint_bridge"
+if (chosen_run %in% names(map_results_list)) {
+  cw2obj <- map_results_list[[chosen_run]]$result
+  cw2_summary <- summary_map(cw2obj, map_results_list[[chosen_run]]$used_label_sets)
+}
+
+
+# 7) Quick plotting helper for the chosen result
+plotInfluenceHeatmap <- function(info_mat, top_n = 25, main = "") {
+  if (is.null(info_mat)) stop("info_mat is NULL")
+  rowmax <- apply(info_mat, 1, max, na.rm = TRUE)
+  colmax <- apply(info_mat, 2, max, na.rm = TRUE)
+  rr <- head(order(-rowmax), top_n)
+  cc <- head(order(-colmax), top_n)
+  subm <- info_mat[rr, cc, drop = FALSE]
+  library(reshape2)
+  dfm <- reshape2::melt(as.matrix(subm))
+  colnames(dfm) <- c("row","col","value")
+  dfm$row <- factor(dfm$row, levels = rev(rownames(subm)))
+  dfm$col <- factor(dfm$col, levels = colnames(subm))
+  p <- ggplot(dfm, aes(x = col, y = row, fill = value)) + geom_tile() + scale_fill_viridis_c() + theme_minimal() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1), axis.title = element_blank()) + ggtitle(main)
+  return(p)
+}
+
+if (!is.null(cw2_summary$info_1_to_2)) {
+  print(head(cw2_summary$df_info_z, 20))
+  p_inf <- plotInfluenceHeatmap(cw2_summary$info_1_to_2, top_n = min(40, nrow(cw2_summary$info_1_to_2)), main = paste0("Influence: set1 -> set2 (", chosen_run, ")"))
+  print(p_inf)
+}
+ggsave(file.path(output_dir, "cellwalker2_map_results_Heatmap_4.png"), p_inf)
+
+# Save the map results for later inspection
+saveRDS(map_results_list, file = file.path(output_dir, "cellwalker2_map_results_list_3.rds"))
+```
+
+
+
+
+# Validating CellWalker mapping
+```{r Validating CellWalker mapping}
+
+# ============================================================================
+# 1. Z-score Heatmap
+# ============================================================================
+zscore_matrix <- cw2_summary$z_1_to_2
+rownames(zscore_matrix) <- paste0("RNA_", rownames(zscore_matrix))
+
+ph_map <- pheatmap(
+  zscore_matrix,
+  cluster_rows = TRUE,
+  cluster_cols = TRUE,
+  color = colorRampPalette(c("white", "yellow", "red", "darkred"))(100),
+  breaks = seq(0, max(zscore_matrix, na.rm = TRUE), length.out = 101),
+  main = "RNA → ATAC Mapping (Z-scores)",
+  fontsize = 10,
+  angle_col = 45
+)
+
+print(ph_map)
+ggsave(file.path(output_dir, "cellwalker2_zscore_pheatmap.png"), ph_map)
+
+
+# ============================================================================
+# 2. Top Mappings Analysis
+# ============================================================================
+top_mappings <- cw2_summary$df_info_z %>%
+  filter(zscore > 3) %>%
+  arrange(desc(zscore)) %>%
+  head(20)
+
+print("Top 20 RNA → ATAC Mappings (Z-score > 3):")
+print(top_mappings)
+
+# Save top mappings to file
+write.csv(top_mappings, 
+          file = file.path(output_dir, "cellwalker2_top_mappings.csv"),
+          row.names = FALSE)
+
+
+# ============================================================================
+# 3. Spatial Co-localization Check
+# ============================================================================
+message("Analyzing spatial co-localization for top mappings...")
+
+# Extract ATAC cluster assignments from label edges
+# atac_label_edges has cells as rows, cluster labels as columns
+atac_cluster_assignments <- apply(atac_label_edges, 1, which.max)
+names(atac_cluster_assignments) <- rownames(atac_label_edges)
+atac_cluster_names <- colnames(atac_label_edges)[atac_cluster_assignments]
+names(atac_cluster_names) <- names(atac_cluster_assignments)
+
+# For the top mapping, create spatial overlay plot
+if (nrow(top_mappings) > 0) {
+  # Get the strongest mapping
+  top_rna_cluster <- as.character(top_mappings$label_rna[1])
+  top_atac_cluster <- as.character(top_mappings$label_atac[1])
+  
+  # Get cells for these clusters
+  rna_cluster_cells <- names(which(seurat_obj_rna_preprocessed$seurat_clusters == top_rna_cluster))
+  atac_cluster_cells <- names(which(atac_cluster_names == top_atac_cluster))
+  
+  # Filter to cells present in spatial coordinates
+  rna_cluster_cells <- intersect(rna_cluster_cells, rownames(rna_spatial_coords_filtered))
+  atac_cluster_cells <- intersect(atac_cluster_cells, rownames(atac_spatial_coords_filtered))
+  
+  if (length(rna_cluster_cells) > 0 && length(atac_cluster_cells) > 0) {
+    # Create combined dataframe
+    plot_df <- data.frame(
+      x = c(rna_spatial_coords_filtered[rna_cluster_cells, "x"], 
+            atac_spatial_coords_filtered[atac_cluster_cells, "x"]),
+      y = c(rna_spatial_coords_filtered[rna_cluster_cells, "y"], 
+            atac_spatial_coords_filtered[atac_cluster_cells, "y"]),
+      modality = c(rep(paste0("RNA_cluster_", top_rna_cluster), length(rna_cluster_cells)),
+                   rep(paste0("ATAC_cluster_", top_atac_cluster), length(atac_cluster_cells)))
+    )
+    
+    # Create named color vector first
+    color_values <- c("#E41A1C", "#377EB8")
+    names(color_values) <- c(
+      paste0("RNA_cluster_", top_rna_cluster),
+      paste0("ATAC_cluster_", top_atac_cluster)
+    )
+    
+    p_spatial <- ggplot(plot_df, aes(x = x, y = y, color = modality)) +
+      geom_point(size = 0.5, alpha = 0.6) +
+      scale_color_manual(values = color_values) +
+      theme_minimal() +
+      ggtitle(paste0("Spatial Co-localization: RNA Cluster ", top_rna_cluster, 
+                     " vs ATAC Cluster ", top_atac_cluster,
+                     "\nZ-score = ", round(top_mappings$zscore[1], 2)))
+    
+    print(p_spatial)
+    ggsave(file.path(output_dir, "cellwalker2_spatial_colocalization_top.png"), 
+           p_spatial, width = 8, height = 7)
+  } else {
+    message("Not enough cells found for spatial co-localization plot")
+  }
+}
+
+
+# ============================================================================
+# 4. RNA Cluster Marker Analysis
+# ============================================================================
+message("Analyzing marker genes for top mapped RNA clusters...")
+
+# For top 3 mappings, identify marker genes
+top_n_mappings <- min(3, nrow(top_mappings))
+rna_marker_summary <- list()
+
+for (i in 1:top_n_mappings) {
+  rna_clust <- as.character(top_mappings$label_rna[i])
+  
+  rna_cluster_markers <- markers_rna_df %>%
+    filter(cluster == rna_clust) %>%
+    arrange(desc(avg_log2FC)) %>%
+    head(10)
+  
+  rna_marker_summary[[rna_clust]] <- rna_cluster_markers
+  
+  message("\nRNA Cluster ", rna_clust, " top markers:")
+  print(rna_cluster_markers[, c("gene", "avg_log2FC")])
+}
+
+
+# ============================================================================
+# 5. ATAC Peak Activity Analysis
+# ============================================================================
+message("Analyzing ATAC peak activity for top mapped clusters...")
+
+atac_peak_summary <- list()
+
+for (i in 1:top_n_mappings) {
+  atac_clust <- as.character(top_mappings$label_atac[i])
+  atac_cluster_cells <- names(which(atac_cluster_names == atac_clust))
+  atac_cluster_cells <- intersect(atac_cluster_cells, rownames(atac_counts_matrix_filtered))
+  
+  if (length(atac_cluster_cells) > 5) {
+    # Calculate mean peak activity
+    atac_cluster_peak_activity <- Matrix::colMeans(
+      atac_counts_matrix_filtered[atac_cluster_cells, ]
+    )
+    
+    # Get top peaks
+    top_peaks_idx <- head(order(atac_cluster_peak_activity, decreasing = TRUE), 20)
+    top_peaks <- names(atac_peaks_gr_filtered)[top_peaks_idx]
+    
+    # Convert to genomic coordinates
+    top_peaks_gr <- atac_peaks_gr_filtered[top_peaks_idx]
+    
+    atac_peak_summary[[atac_clust]] <- list(
+      top_peaks = top_peaks,
+      top_peaks_gr = top_peaks_gr,
+      mean_activity = atac_cluster_peak_activity[top_peaks_idx]
+    )
+    
+    message("\nATAC Cluster ", atac_clust, " - Top 5 peaks:")
+    print(head(top_peaks_gr, 5))
+  }
+}
+
+
+# ============================================================================
+# 6. Gene Activity Correlation Analysis
+# ============================================================================
+message("Computing RNA-ATAC gene activity correlations...")
+
+# Get shared genes between RNA and ATAC
+shared_genes <- intersect(
+  rownames(seurat_obj_rna_preprocessed),
+  colnames(atac_gene_activity_matrix_final)
+)
+message("Number of shared genes: ", length(shared_genes))
+
+# For each top mapping, compute correlation
+correlation_results <- list()
+
+for (i in 1:top_n_mappings) {
+  rna_clust <- as.character(top_mappings$label_rna[i])
+  atac_clust <- as.character(top_mappings$label_atac[i])
+  
+  # Get cells
+  rna_cluster_cells <- names(which(seurat_obj_rna_preprocessed$seurat_clusters == rna_clust))
+  atac_cluster_cells <- names(which(atac_cluster_names == atac_clust))
+  
+  # Filter to cells present in data
+  rna_cluster_cells <- intersect(rna_cluster_cells, colnames(seurat_obj_rna_preprocessed))
+  atac_cluster_cells <- intersect(atac_cluster_cells, rownames(atac_gene_activity_matrix_final))
+  
+  if (length(rna_cluster_cells) > 5 && length(atac_cluster_cells) > 5) {
+    # Extract expression and activity
+    rna_expr <- GetAssayData(seurat_obj_rna_preprocessed, layer = "data")[shared_genes, rna_cluster_cells]
+    atac_activity <- atac_gene_activity_matrix_final[atac_cluster_cells, shared_genes]
+    
+    # Compute mean across cells for each gene
+    rna_mean <- Matrix::rowMeans(rna_expr)
+    atac_mean <- Matrix::colMeans(atac_activity)
+    
+    # Filter genes with sufficient expression
+    expressed_genes <- shared_genes[rna_mean > 0.1 & atac_mean > 0.1]
+    
+    if (length(expressed_genes) > 10) {
+      # Compute correlation
+      gene_correlations <- sapply(expressed_genes, function(g) {
+        rna_vals <- as.numeric(rna_expr[g, ])
+        atac_vals <- as.numeric(atac_activity[, g])
+        
+        if (sd(rna_vals) > 0 && sd(atac_vals) > 0) {
+          cor(rna_vals, atac_vals, method = "spearman", use = "complete.obs")
+        } else {
+          NA
+        }
+      })
+      
+      gene_correlations <- gene_correlations[!is.na(gene_correlations)]
+      
+      correlation_results[[paste0("RNA", rna_clust, "_ATAC", atac_clust)]] <- gene_correlations
+      
+      message("\nRNA Cluster ", rna_clust, " → ATAC Cluster ", atac_clust)
+      message("  Genes analyzed: ", length(gene_correlations))
+      message("  Median correlation: ", round(median(gene_correlations), 3))
+      message("  Mean correlation: ", round(mean(gene_correlations), 3))
+      
+      # Plot histogram
+      p_cor <- ggplot(data.frame(cor = gene_correlations), aes(x = cor)) +
+        geom_histogram(bins = 30, fill = "skyblue", color = "black", alpha = 0.7) +
+        geom_vline(xintercept = median(gene_correlations), 
+                   linetype = "dashed", color = "red", size = 1) +
+        labs(title = paste0("RNA Cluster ", rna_clust, " → ATAC Cluster ", atac_clust,
+                           "\nGene Activity Correlation (n=", length(gene_correlations), ")"),
+             x = "Spearman Correlation", y = "Count") +
+        theme_minimal()
+      
+      print(p_cor)
+      ggsave(file.path(output_dir, 
+                      paste0("cellwalker2_gene_correlation_RNA", rna_clust, 
+                             "_ATAC", atac_clust, ".png")), 
+             p_cor, width = 7, height = 5)
+    }
+  }
+}
+
+
+# ============================================================================
+# 7. Dotplot Visualization
+# ============================================================================
+plotZscoreDotplot <- function(zscore_matrix, threshold = 3) {
+  zscore_df <- reshape2::melt(zscore_matrix)
+  colnames(zscore_df) <- c("RNA_label", "ATAC_label", "zscore")
+  
+  # Filter by threshold
+  zscore_df <- zscore_df %>% filter(zscore > threshold)
+  
+  if (nrow(zscore_df) == 0) {
+    message("No mappings above threshold ", threshold)
+    return(NULL)
+  }
+  
+  p <- ggplot(zscore_df, aes(x = ATAC_label, y = RNA_label, 
+                        size = zscore, color = zscore)) +
+    geom_point(alpha = 0.7) +
+    scale_color_viridis_c(option = "plasma") +
+    scale_size_continuous(range = c(2, 10)) +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1),
+          plot.title = element_text(hjust = 0.5)) +
+    labs(title = "RNA → ATAC Cell Type Mapping",
+         x = "ATAC Cluster", y = "RNA Cluster",
+         size = "Z-score", color = "Z-score")
+  
+  return(p)
+}
+
+p_dotplot <- plotZscoreDotplot(zscore_matrix, threshold = 3)
+if (!is.null(p_dotplot)) {
+  print(p_dotplot)
+  ggsave(file.path(output_dir, "cellwalker2_zscore_dotplot.png"), 
+         p_dotplot, width = 10, height = 8)
+}
+
+
+# ============================================================================
+# 8. Transfer Labels to ATAC cells
+# ============================================================================
+message("Transferring RNA labels to ATAC cells...")
+
+# Get influence matrix (RNA clusters -> ATAC cells in the subset)
+influence_mat <- cw2_summary$info_1_to_2
+
+# For each ATAC cell in the mapping, assign best RNA label
+atac_predicted_labels <- apply(influence_mat, 2, which.max)
+atac_predicted_labels <- rownames(influence_mat)[atac_predicted_labels]
+names(atac_predicted_labels) <- colnames(influence_mat)
+
+# Get confidence scores
+atac_confidence <- apply(influence_mat, 2, max)
+
+# Create metadata df for all ATAC cells
+atac_meta_with_labels <- data.frame(
+  cell_id = rownames(atac_counts_matrix_filtered),
+  predicted_rna_label = NA,
+  confidence = 0,
+  stringsAsFactors = FALSE
+)
+rownames(atac_meta_with_labels) <- atac_meta_with_labels$cell_id
+
+# Fill in predictions for cells that were in the mapping
+mapped_cells <- intersect(names(atac_predicted_labels), atac_meta_with_labels$cell_id)
+atac_meta_with_labels[mapped_cells, "predicted_rna_label"] <- atac_predicted_labels[mapped_cells]
+atac_meta_with_labels[mapped_cells, "confidence"] <- atac_confidence[mapped_cells]
+
+# Summary
+message("Label transfer summary:")
+message("  Total ATAC cells: ", nrow(atac_meta_with_labels))
+message("  Cells with predictions: ", sum(!is.na(atac_meta_with_labels$predicted_rna_label)))
+message("  Mean confidence: ", round(mean(atac_meta_with_labels$confidence[!is.na(atac_meta_with_labels$predicted_rna_label)]), 3))
+
+# Save predictions
+write.csv(atac_meta_with_labels, 
+          file = file.path(output_dir, "atac_predicted_rna_labels.csv"),
+          row.names = FALSE)
+
+
+# ============================================================================
+# 9. Spatial visualization of transferred labels
+# ============================================================================
+message("Creating spatial visualization of transferred labels...")
+
+# Add spatial coordinates
+atac_meta_spatial <- atac_meta_with_labels
+atac_meta_spatial$x <- atac_spatial_coords_filtered[atac_meta_spatial$cell_id, "x"]
+atac_meta_spatial$y <- atac_spatial_coords_filtered[atac_meta_spatial$cell_id, "y"]
+
+# Filter to cells with predictions
+atac_meta_spatial_pred <- atac_meta_spatial[!is.na(atac_meta_spatial$predicted_rna_label), ]
+
+if (nrow(atac_meta_spatial_pred) > 0) {
+  # Plot transferred labels in space
+  p_spatial_transfer <- ggplot(atac_meta_spatial_pred, 
+                               aes(x = x, y = y, color = predicted_rna_label)) +
+    geom_point(size = 0.8, alpha = 0.7) +
+    scale_color_brewer(palette = "Set3", name = "RNA Label") +
+    theme_minimal() +
+    labs(title = "ATAC Cells Colored by Transferred RNA Label",
+         subtitle = paste0(nrow(atac_meta_spatial_pred), " cells with predictions"))
+  
+  print(p_spatial_transfer)
+  ggsave(file.path(output_dir, "cellwalker2_transferred_labels_spatial.png"),
+         p_spatial_transfer, width = 10, height = 8)
+  
+  # Plot confidence in space
+  p_confidence <- ggplot(atac_meta_spatial_pred, 
+                        aes(x = x, y = y, color = confidence)) +
+    geom_point(size = 0.8, alpha = 0.7) +
+    scale_color_viridis_c(option = "magma", name = "Confidence") +
+    theme_minimal() +
+    labs(title = "ATAC Label Transfer Confidence",
+         subtitle = "Higher values = more confident predictions")
+  
+  print(p_confidence)
+  ggsave(file.path(output_dir, "cellwalker2_confidence_spatial.png"),
+         p_confidence, width = 10, height = 8)
+}
+
+
+# ============================================================================
+# 10. Summary Report
+# ============================================================================
+message("\n========== CellWalker2 Mapping Validation Summary ==========")
+message("1. Top Mappings:")
+message("   - ", nrow(top_mappings), " significant mappings (Z > 3)")
+message("   - Strongest: RNA Cluster ", top_mappings$label_rna[1], 
+        " → ATAC Cluster ", top_mappings$label_atac[1], 
+        " (Z = ", round(top_mappings$zscore[1], 2), ")")
+
+message("\n2. Gene Activity Correlations:")
+for (mapping_name in names(correlation_results)) {
+  cors <- correlation_results[[mapping_name]]
+  message("   ", mapping_name, ": median r = ", round(median(cors), 3),
+          " (", length(cors), " genes)")
+}
+
+message("\n3. Label Transfer:")
+message("   - Transferred labels to ", 
+        sum(!is.na(atac_meta_with_labels$predicted_rna_label)), " ATAC cells")
+message("   - Mean confidence: ", 
+        round(mean(atac_meta_with_labels$confidence[!is.na(atac_meta_with_labels$predicted_rna_label)]), 3))
+
+message("\n4. Output Files:")
+message("   - Z-score heatmap: cellwalker2_zscore_pheatmap.png")
+message("   - Dotplot: cellwalker2_zscore_dotplot.png")
+message("   - Top mappings: cellwalker2_top_mappings.csv")
+message("   - Transferred labels: atac_predicted_rna_labels.csv")
+message("   - Gene correlation plots: cellwalker2_gene_correlation_*.png")
+message("   - Spatial plots: cellwalker2_spatial_*.png")
+message("============================================================\n")
+```
+
+# Investigate ATAC Cluster Dominance
+```{r Investigate ATAC Cluster Dominance - FIXED}
+
+message("\n========== INVESTIGATING ATAC CLUSTER DOMINANCE ==========\n")
+
+# ============================================================================
+# DIAGNOSTIC: Check actual cluster distribution
+# ============================================================================
+message("CRITICAL CHECK: How many unique ATAC clusters exist?")
+unique_clusters <- unique(atac_cluster_names)
+message("Unique clusters: ", paste(unique_clusters, collapse = ", "))
+message("Number of unique clusters: ", length(unique_clusters))
+
+if (length(unique_clusters) == 1) {
+  message("\n*** WARNING: ALL ATAC cells are assigned to a single cluster! ***")
+  message("This explains why all RNA clusters map to the same ATAC cluster.")
+  message("Root cause is likely in atac_label_edges construction.\n")
+}
+
+# ============================================================================
+# 1. Cell Count Distribution
+# ============================================================================
+message("1. Checking cell distribution across ATAC label categories...")
+
+# Look at the actual atac_label_edges matrix structure
+message("\nATAC Label Edges Matrix Dimensions:")
+message("  Rows (cells): ", nrow(atac_label_edges))
+message("  Columns (label categories): ", ncol(atac_label_edges))
+message("  Column names: ", paste(colnames(atac_label_edges), collapse = ", "))
+
+# Check which column has max values for each cell
+cluster_assignment_counts <- table(apply(atac_label_edges, 1, which.max))
+names(cluster_assignment_counts) <- colnames(atac_label_edges)[as.numeric(names(cluster_assignment_counts))]
+
+cluster_dist_df <- data.frame(
+  cluster = names(cluster_assignment_counts),
+  n_cells = as.numeric(cluster_assignment_counts),
+  percentage = as.numeric(cluster_assignment_counts) / sum(cluster_assignment_counts) * 100
+)
+
+print(cluster_dist_df)
+
+p1 <- ggplot(cluster_dist_df, aes(x = reorder(cluster, -n_cells), y = n_cells, fill = cluster)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = paste0(n_cells, "\n(", round(percentage, 1), "%)")), 
+            vjust = -0.3, size = 3) +
+  labs(title = "ATAC Cluster Assignment Distribution",
+       subtitle = "Based on which label edge is strongest per cell",
+       x = "ATAC Label Category", y = "Number of Cells") +
+  theme_minimal() +
+  theme(legend.position = "none", axis.text.x = element_text(angle = 45, hjust = 1))
+
+print(p1)
+
+
+# ============================================================================
+# 2. Label Edge Weight Distribution
+# ============================================================================
+message("\n2. Analyzing label edge weights across categories...")
+
+# Distribution of edge weights per label category
+edge_weight_stats <- data.frame(
+  cluster = colnames(atac_label_edges),
+  mean_weight = colMeans(atac_label_edges),
+  median_weight = apply(atac_label_edges, 2, median),
+  max_weight = apply(atac_label_edges, 2, max),
+  n_nonzero = colSums(atac_label_edges > 0),
+  pct_nonzero = colSums(atac_label_edges > 0) / nrow(atac_label_edges) * 100
+)
+
+print(edge_weight_stats)
+
+p2 <- ggplot(edge_weight_stats, aes(x = cluster, y = mean_weight, fill = cluster)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Mean Label Edge Weight per Category",
+       subtitle = "Higher weight = more cells strongly connected",
+       x = "ATAC Label Category", y = "Mean Edge Weight") +
+  theme_minimal() +
+  theme(legend.position = "none", axis.text.x = element_text(angle = 45, hjust = 1))
+
+p3 <- ggplot(edge_weight_stats, aes(x = cluster, y = pct_nonzero, fill = cluster)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Percentage of Cells with Non-Zero Edges",
+       subtitle = "Connectivity breadth across cells",
+       x = "ATAC Label Category", y = "% Cells Connected") +
+  theme_minimal() +
+  theme(legend.position = "none", axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+# ============================================================================
+# 3. Heatmap of Label Edge Matrix
+# ============================================================================
+message("\n3. Visualizing label edge matrix structure...")
+
+# Sample cells for visualization
+n_cells_to_plot <- min(500, nrow(atac_label_edges))
+sample_cells <- sample(nrow(atac_label_edges), n_cells_to_plot)
+
+edge_matrix_subset <- atac_label_edges[sample_cells, ]
+
+# Create heatmap
+library(reshape2)
+edge_df <- melt(as.matrix(edge_matrix_subset))
+colnames(edge_df) <- c("cell", "label_category", "weight")
+
+p4 <- ggplot(edge_df, aes(x = label_category, y = as.factor(cell), fill = weight)) +
+  geom_tile() +
+  scale_fill_gradient2(low = "white", mid = "yellow", high = "red", midpoint = 0.5) +
+  labs(title = paste0("ATAC Label Edge Matrix (", n_cells_to_plot, " random cells)"),
+       subtitle = "Does one column dominate?",
+       x = "Label Category", y = "Cell (sampled)") +
+  theme_minimal() +
+  theme(axis.text.y = element_blank(),
+        axis.ticks.y = element_blank())
+
+print(p4)
+
+
+# ============================================================================
+# 4. Gene Activity Analysis by Label Category
+# ============================================================================
+message("\n4. Comparing gene activity by label category...")
+
+# For each label category, get cells with strong edges to that category
+gene_activity_by_label <- data.frame()
+
+for (i in 1:ncol(atac_label_edges)) {
+  label_name <- colnames(atac_label_edges)[i]
+  
+  # Get cells with strong edges to this label (top 20%)
+  edge_strengths <- atac_label_edges[, i]
+  threshold <- quantile(edge_strengths[edge_strengths > 0], 0.8, na.rm = TRUE)
+  strong_cells <- names(which(edge_strengths > threshold))
+  strong_cells <- intersect(strong_cells, rownames(atac_gene_activity_matrix_final))
+  
+  if (length(strong_cells) > 5) {
+    gene_activity_by_label <- rbind(gene_activity_by_label, data.frame(
+      label = label_name,
+      n_cells = length(strong_cells),
+      mean_total_activity = mean(Matrix::rowSums(atac_gene_activity_matrix_final[strong_cells, ])),
+      mean_active_genes = mean(Matrix::rowSums(atac_gene_activity_matrix_final[strong_cells, ] > 0)),
+      sparsity = mean(atac_gene_activity_matrix_final[strong_cells, ] == 0) * 100
+    ))
+  }
+}
+
+if (nrow(gene_activity_by_label) > 0) {
+  print(gene_activity_by_label)
+  
+  p5 <- ggplot(gene_activity_by_label, aes(x = label, y = mean_active_genes, fill = label)) +
+    geom_bar(stat = "identity") +
+    labs(title = "Mean Active Genes by Label Category",
+         subtitle = "Using cells with strong edges to each label",
+         x = "Label Category", y = "Mean N Active Genes") +
+    theme_minimal() +
+    theme(legend.position = "none", axis.text.x = element_text(angle = 45, hjust = 1))
+} else {
+  p5 <- ggplot() + 
+    annotate("text", x = 0.5, y = 0.5, label = "Insufficient data") +
+    theme_void()
+}
+
+
+# ============================================================================
+# 5. Influence Score Analysis
+# ============================================================================
+message("\n5. Analyzing influence scores from mapping...")
+
+influence_by_atac <- data.frame(
+  atac_label = colnames(cw2_summary$info_1_to_2),
+  total_influence = colSums(cw2_summary$info_1_to_2),
+  max_influence = apply(cw2_summary$info_1_to_2, 2, max),
+  n_rna_clusters_mapping = colSums(cw2_summary$info_1_to_2 > 0.01),
+  mean_influence = colMeans(cw2_summary$info_1_to_2)
+)
+
+print(influence_by_atac)
+
+p6 <- ggplot(influence_by_atac, aes(x = atac_label, y = total_influence, fill = atac_label)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Total Influence Score per ATAC Label",
+       subtitle = "Sum of all RNA→ATAC influences",
+       x = "ATAC Label", y = "Total Influence") +
+  theme_minimal() +
+  theme(legend.position = "none", axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+# ============================================================================
+# 6. Label Edge Construction Method Check
+# ============================================================================
+message("\n6. Checking how ATAC label edges were constructed...")
+
+message("Method used: ", 
+        if(exists("motif_regions_df")) "Motif-based" else "Gene-activity clustering")
+
+if (!exists("motif_regions_df")) {
+  message("\nGene-activity clustering approach:")
+  message("  This creates pseudo-clusters from gene activity similarity")
+  message("  Problem: If one cluster dominates the gene activity space,")
+  message("  all cells may be assigned similar label edges")
+}
+
+
+# ============================================================================
+# 7. Combined Plot
+# ============================================================================
+combined_plot <- (p1 | p2) / (p3 | p4) / (p5 | p6)
+
+print(combined_plot)
+ggsave(file.path(output_dir, "atac_label_edge_diagnostic.png"),
+       combined_plot, width = 16, height = 14)
+
+
+# ============================================================================
+# 8. Root Cause Analysis
+# ============================================================================
+message("\n========== ROOT CAUSE ANALYSIS ==========\n")
+
+message("FINDING: ", length(unique_clusters), " unique ATAC cluster(s) detected")
+
+if (length(unique_clusters) == 1) {
+  message("\n*** PRIMARY ISSUE IDENTIFIED ***")
+  message("ALL ATAC cells are being assigned to a single label category.")
+  message("\nLikely causes:")
+  message("1. Label edge matrix (atac_label_edges) has one dominant column")
+  message("2. Gene-activity clustering created only one meaningful cluster")
+  message("3. Clustering parameters (n_clusters, resolution) too coarse")
+  message("\nEvidence from label edge weights:")
+  print(edge_weight_stats[order(-edge_weight_stats$mean_weight), ])
+  
+  # Find which column dominates
+  dominant_col <- which.max(edge_weight_stats$mean_weight)
+  message("\nDominant label category: ", colnames(atac_label_edges)[dominant_col])
+  message("Mean weight: ", round(edge_weight_stats$mean_weight[dominant_col], 4))
+  message("% cells connected: ", round(edge_weight_stats$pct_nonzero[dominant_col], 1), "%")
+}
+
+message("\n========== RECOMMENDED FIXES ==========\n")
+message("1. Increase n_clusters in buildAtacLabelEdgesFromGeneActivity()")
+message("   Current: 15  →  Try: 25-30")
+message("2. Add more stringent filtering in label edge construction")
+message("3. Check if gene activity matrix has sufficient diversity")
+message("4. Consider alternative label strategies (e.g., peak-based)")
+message("==================================================\n")
+
+
+# Save diagnostics
+write.csv(edge_weight_stats, 
+          file = file.path(output_dir, "atac_label_edge_diagnostics.csv"),
+          row.names = FALSE)
+```
+
+# Spatial Validation of Separate Graphs
+```{r Spatial Validation of Separate Graphs}
+# --- Spatial Validation of Separate Graphs (Neighbor Comparison) ---
+k_top_neighbors_for_plot <- 10
+k_next_neighbors_for_plot <- 10
+
+message("--- Spatial Validation for RNA Graph Coherence (Neighbor Comparison) ---")
+p_spatial_coherence_rna <- plotSpatialGraphCoherence(
+  combined_rna_atac_graph = rna_graph, # Use the RNA graph
+  rna_spatial_coords_df = rna_spatial_coords_filtered,
+  n_query_cells = 4,
+  k_top_neighbors = k_top_neighbors_for_plot,
+  k_next_neighbors = k_next_neighbors_for_plot
+)
+print(p_spatial_coherence_rna)
+ggsave("/projectnb/paxlab/phitro/CellWalkR2/R/figure/RNA_graph_to_spatial_overlay.png", plot = p_spatial_coherence_rna)
+
+message("--- Spatial Validation for ATAC Graph Coherence (Neighbor Comparison) ---")
+p_spatial_coherence_atac <- plotSpatialGraphCoherence(
+  combined_rna_atac_graph = atac_graph, # Use the ATAC graph
+  rna_spatial_coords_df = atac_spatial_coords_filtered, # Use ATAC spatial coords for ATAC validation
+  n_query_cells = 4,
+  k_top_neighbors = k_top_neighbors_for_plot,
+  k_next_neighbors = k_next_neighbors_for_plot
+)
+print(p_spatial_coherence_atac)
+ggsave("/projectnb/paxlab/phitro/CellWalkR2/R/figure/ATAC_graph_to_spatial_overlay.png", plot = p_spatial_coherence_atac)
+
+
+
+
+# Define k for coherence assessment
+k_coherence_neighbors <- 10 
+
+# --- Prepare feature matrices for similarity calculation ---
+# For RNA: Use normalized data slot from Seurat. This should be 'genes x cells'.
+rna_feature_matrix_for_sim <- GetAssayData(seurat_obj_rna_preprocessed, assay = "RNA", layer = "data")
+
+# For ATAC: Use the atac_gene_activity_matrix_final.
+# It is typically 'cells x genes', so it needs to be transposed to 'genes x cells'
+# for cosine similarity calculation with sparse matrices.
+atac_feature_matrix_for_sim <- t(atac_gene_activity_matrix_final)
+
+# --- Compute coherence for two neighbor rank ranges and compare with Random baseline plots ---
+rangeA <- c(1,10)
+rangeB <- c(11,20)
+
+# --- For RNA ---
+rna_res_A <- assessSpatialGraphCoherenceOverall(
+  feature_graph = rna_graph,
+  feature_matrix_for_similarity = rna_feature_matrix_for_sim,
+  spatial_coords_df = rna_spatial_coords_filtered,
+  k_neighbors = max(rangeA[2], rangeB[2]), # internal k used for some operations; function uses neighbor_rank_range for selection
+  modality_name = "RNA",
+  n_workers = 8,
+  neighbor_rank_range = rangeA
+)
+rna_res_B <- assessSpatialGraphCoherenceOverall(
+  feature_graph = rna_graph,
+  feature_matrix_for_similarity = rna_feature_matrix_for_sim,
+  spatial_coords_df = rna_spatial_coords_filtered,
+  k_neighbors = max(rangeA[2], rangeB[2]),
+  modality_name = "RNA",
+  n_workers = 8,
+  neighbor_rank_range = rangeB
+)
+ggsave("/projectnb/paxlab/phitro/CellWalkR2/R/figure/RNA_plot_dist_spatial_for_graph_nn.png", plot = rna_res_A$plot_dist_spatial_for_graph_nn)
+ggsave("/projectnb/paxlab/phitro/CellWalkR2/R/figure/RNA_plot_sim_graph_for_spatial_nn.png", plot = rna_res_A$plot_sim_graph_for_spatial_nn)
+ggsave("/projectnb/paxlab/phitro/CellWalkR2/R/figure/RNA_plot_sim_graph_for_graph_nn.png", plot = rna_res_A$plot_sim_graph_for_graph_nn)
+ggsave("/projectnb/paxlab/phitro/CellWalkR2/R/figure/RNA_plot_spatial_coherence_metrics.png", plot = rna_res_A$plot_spatial_coherence_metrics)
+
+rna_coherence_results_random <- validateGraphCoherenceWithRandom(
+  feature_graph = rna_graph,
+  spatial_coords_df = rna_spatial_coords_filtered,
+  k_neighbors = k_coherence_neighbors,
+  num_random_comparisons = 5,
+  modality_name = "RNA",
+  n_workers = 8
+)
+print(rna_coherence_results_random$plot_comparison)
+ggsave("/projectnb/paxlab/phitro/CellWalkR2/R/figure/RNA_plot_comparison_rand.png", plot = rna_coherence_results_random$plot_comparison)
+
+
+
+# Combine coherence_df from the two runs and the random baseline
+dfA <- rna_res_A$coherence_df
+dfA$group <- paste0("RNA ", rangeA[1], ":", rangeA[2], " NN")
+dfB <- rna_res_B$coherence_df
+dfB$group <- paste0("RNA ", rangeB[1], ":", rangeB[2], " NN")
+# validateGraphCoherenceWithRandom returns per-graph/random combined df in $coherence_df
+dfRand <- NULL
+if (!is.null(rna_coherence_results_random$coherence_df)) {
+  # rna_coherence_results_random returns rows for both Graph Neighbors and Random Cells; extract Random
+  if ("graph_type" %in% colnames(rna_coherence_results_random$coherence_df)) {
+    dfRand_tmp <- rna_coherence_results_random$coherence_df
+    dfRand_tmp <- dfRand_tmp[dfRand_tmp$graph_type == "Random Cells", , drop = FALSE]
+    dfRand <- data.frame(cell_id = dfRand_tmp$cell_id,
+                         median_spatial_dist_of_graph_neighbors = dfRand_tmp$median_spatial_dist,
+                         median_graph_sim_of_spatial_neighbors = dfRand_tmp$median_graph_sim,
+                         group = paste0("RNA Random"))
+  } else {
+    # fallback: if structure differs, skip
+    dfRand <- NULL
+  }
+}
+
+combined_rna_compare <- dplyr::bind_rows(
+  dfA[, c("cell_id", "median_spatial_dist_of_graph_neighbors", "median_graph_sim_of_spatial_neighbors", "group")],
+  dfB[, c("cell_id", "median_spatial_dist_of_graph_neighbors", "median_graph_sim_of_spatial_neighbors", "group")],
+  dfRand
+)
+
+# Plot combined densities for RNA
+p_rna_combined_spatial <- ggplot2::ggplot(combined_rna_compare, ggplot2::aes(x = median_spatial_dist_of_graph_neighbors, fill = group)) +
+  ggplot2::geom_density(alpha = 0.5, na.rm = TRUE) +
+  ggplot2::labs(title = "RNA: Median Spatial Distance — Neighbor Rank Ranges vs Random", x = "Median Spatial Distance", y = "Density", fill = "Group") +
+  ggplot2::theme_minimal() + ggplot2::theme(plot.title = ggplot2::element_text(hjust = 0.5))
+print(p_rna_combined_spatial)
+ggsave(file.path(output_dir, "RNA_neighbor_ranges_vs_random_spatial_dist.png"), plot = p_rna_combined_spatial)
+
+p_rna_combined_sim <- ggplot2::ggplot(combined_rna_compare, ggplot2::aes(x = median_graph_sim_of_spatial_neighbors, fill = group)) +
+  ggplot2::geom_density(alpha = 0.5, na.rm = TRUE) +
+  ggplot2::labs(title = "RNA: Median Graph Similarity — Neighbor Rank Ranges vs Random", x = "Median Graph Similarity", y = "Density", fill = "Group") +
+  ggplot2::theme_minimal() + ggplot2::theme(plot.title = ggplot2::element_text(hjust = 0.5))
+print(p_rna_combined_sim)
+ggsave(file.path(output_dir, "RNA_neighbor_ranges_vs_random_graph_sim.png"), plot = p_rna_combined_sim)
+
+
+# --- For ATAC ---
+atac_res_A <- assessSpatialGraphCoherenceOverall(
+  feature_graph = atac_graph,
+  feature_matrix_for_similarity = atac_feature_matrix_for_sim,
+  spatial_coords_df = atac_spatial_coords_filtered,
+  k_neighbors = max(rangeA[2], rangeB[2]),
+  modality_name = "ATAC",
+  n_workers = 8,
+  neighbor_rank_range = rangeA
+)
+atac_res_B <- assessSpatialGraphCoherenceOverall(
+  feature_graph = atac_graph,
+  feature_matrix_for_similarity = atac_feature_matrix_for_sim,
+  spatial_coords_df = atac_spatial_coords_filtered,
+  k_neighbors = max(rangeA[2], rangeB[2]),
+  modality_name = "ATAC",
+  n_workers = 8,
+  neighbor_rank_range = rangeB
+)
+ggsave("/projectnb/paxlab/phitro/CellWalkR2/R/figure/ATAC_plot_dist_spatial_for_graph_nn.png", plot = atac_res_A$plot_dist_spatial_for_graph_nn)
+ggsave("/projectnb/paxlab/phitro/CellWalkR2/R/figure/ATAC_plot_sim_graph_for_spatial_nn.png", plot = atac_res_A$plot_sim_graph_for_spatial_nn)
+ggsave("/projectnb/paxlab/phitro/CellWalkR2/R/figure/ATAC_plot_sim_graph_for_graph_nn.png", plot = atac_res_A$plot_sim_graph_for_graph_nn)
+ggsave("/projectnb/paxlab/phitro/CellWalkR2/R/figure/ATAC_plot_spatial_coherence_metrics.png", plot = atac_res_A$plot_spatial_coherence_metrics)
+
+atac_coherence_results_random <- validateGraphCoherenceWithRandom(
+  feature_graph = atac_graph,
+  spatial_coords_df = atac_spatial_coords_filtered,
+  k_neighbors = k_coherence_neighbors,
+  num_random_comparisons = 5,
+  modality_name = "ATAC",
+  n_workers = 8
+)
+print(atac_coherence_results_random$plot_comparison)
+ggsave("/projectnb/paxlab/phitro/CellWalkR2/R/figure/ATAC_plot_comparison_rand.png", plot = atac_coherence_results_random$plot_comparison)
+
+dfA_atac <- atac_res_A$coherence_df
+dfA_atac$group <- paste0("ATAC ", rangeA[1], ":", rangeA[2], " NN")
+dfB_atac <- atac_res_B$coherence_df
+dfB_atac$group <- paste0("ATAC ", rangeB[1], ":", rangeB[2], " NN")
+
+dfRand_atac <- NULL
+if (!is.null(atac_coherence_results_random$coherence_df) && "graph_type" %in% colnames(atac_coherence_results_random$coherence_df)) {
+  dfRand_tmp2 <- atac_coherence_results_random$coherence_df
+  dfRand_tmp2 <- dfRand_tmp2[dfRand_tmp2$graph_type == "Random Cells", , drop = FALSE]
+  dfRand_atac <- data.frame(cell_id = dfRand_tmp2$cell_id,
+                            median_spatial_dist_of_graph_neighbors = dfRand_tmp2$median_spatial_dist,
+                            median_graph_sim_of_spatial_neighbors = dfRand_tmp2$median_graph_sim,
+                            group = paste0("ATAC Random"))
+}
+
+combined_atac_compare <- dplyr::bind_rows(
+  dfA_atac[, c("cell_id", "median_spatial_dist_of_graph_neighbors", "median_graph_sim_of_spatial_neighbors", "group")],
+  dfB_atac[, c("cell_id", "median_spatial_dist_of_graph_neighbors", "median_graph_sim_of_spatial_neighbors", "group")],
+  dfRand_atac
+)
+
+p_atac_combined_spatial <- ggplot2::ggplot(combined_atac_compare, ggplot2::aes(x = median_spatial_dist_of_graph_neighbors, fill = group)) +
+  ggplot2::geom_density(alpha = 0.5, na.rm = TRUE) +
+  ggplot2::labs(title = "ATAC: Median Spatial Distance — Neighbor Rank Ranges vs Random", x = "Median Spatial Distance", y = "Density", fill = "Group") +
+  ggplot2::theme_minimal() + ggplot2::theme(plot.title = ggplot2::element_text(hjust = 0.5))
+print(p_atac_combined_spatial)
+ggsave(file.path(output_dir, "ATAC_neighbor_ranges_vs_random_spatial_dist.png"), plot = p_atac_combined_spatial)
+
+p_atac_combined_sim <- ggplot2::ggplot(combined_atac_compare, ggplot2::aes(x = median_graph_sim_of_spatial_neighbors, fill = group)) +
+  ggplot2::geom_density(alpha = 0.5, na.rm = TRUE) +
+  ggplot2::labs(title = "ATAC: Median Graph Similarity — Neighbor Rank Ranges vs Random", x = "Median Graph Similarity", y = "Density", fill = "Group") +
+  ggplot2::theme_minimal() + ggplot2::theme(plot.title = ggplot2::element_text(hjust = 0.5))
+print(p_atac_combined_sim)
+ggsave(file.path(output_dir, "ATAC_neighbor_ranges_vs_random_graph_sim.png"), plot = p_atac_combined_sim)
+
+
+
+# --- Analyze Smoothed RNA Graph ---
+message("\n--- Analyzing Smoothed RNA Graph Properties ---")
+# Prepare feature matrix for smoothed RNA (from the smoothed Seurat object)
+smoothed_rna_feature_matrix_for_sim <- GetAssayData(smoothed_seurat_obj, assay = "RNA", layer = "data")
+
+smoothed_rna_coherence_results <- assessSpatialGraphCoherenceOverall(
+  feature_graph = smoothed_rna_graph,
+  feature_matrix_for_similarity = smoothed_rna_feature_matrix_for_sim,
+  spatial_coords_df = rna_spatial_coords_filtered, # Use the same spatial coords as original RNA
+  k_neighbors = graph_params$rna_feature_k_neighbors, # Use same k as original RNA graph
+  modality_name = "Smoothed RNA",
+  n_workers = 8
+)
+print(smoothed_rna_coherence_results$plot_dist_spatial_for_graph_nn)
+print(smoothed_rna_coherence_results$plot_sim_graph_for_spatial_nn)
+print(smoothed_rna_coherence_results$plot_sim_graph_for_graph_nn)
+print(smoothed_rna_coherence_results$plot_spatial_coherence_metrics)
+ggsave("/projectnb/paxlab/phitro/CellWalkR2/R/figure/SmoothedRNA_plot_dist_spatial_for_graph_nn.png", plot = smoothed_rna_coherence_results$plot_dist_spatial_for_graph_nn)
+ggsave("/projectnb/paxlab/phitro/CellWalkR2/R/figure/SmoothedRNA_plot_sim_graph_for_spatial_nn.png", plot = smoothed_rna_coherence_results$plot_sim_graph_for_spatial_nn)
+ggsave("/projectnb/paxlab/phitro/CellWalkR2/R/figure/SmoothedRNA_plot_sim_graph_for_graph_nn.png", plot = smoothed_rna_coherence_results$plot_sim_graph_for_graph_nn)
+ggsave("/projectnb/paxlab/phitro/CellWalkR2/R/figure/SmoothedRNA_plot_spatial_coherence_metrics.png", plot = smoothed_rna_coherence_results$plot_spatial_coherence_metrics)
+
+
+message("\n--- Validating Smoothed RNA Graph Coherence Against Random ---")
+smoothed_rna_coherence_results_random <- validateGraphCoherenceWithRandom(
+  feature_graph = smoothed_rna_graph,
+  spatial_coords_df = rna_spatial_coords_filtered,
+  k_neighbors = k_coherence_neighbors, # Use same k as other validations
+  num_random_comparisons = 5,
+  modality_name = "Smoothed RNA",
+  n_workers = 8
+)
+print(smoothed_rna_coherence_results_random$plot_comparison)
+ggsave("/projectnb/paxlab/phitro/CellWalkR2/R/figure/SmoothedRNA_plot_comparison_rand.png", plot = smoothed_rna_coherence_results_random$plot_comparison)
+
+
+# --- Validate Graph Coherence Against Random Cells ---
+k_coherence_neighbors <- 10 # Ensure this is set (already defined for assessSpatialGraphCoherenceOverall)
+num_random_comparisons_val <- 5 # Number of random comparisons to average
+n_workers_val <- 8 # Number of parallel workers for validation
+
+message("\n--- Validating RNA Graph Coherence Against Random ---")
+rna_coherence_results_random <- validateGraphCoherenceWithRandom(
+  feature_graph = rna_graph,
+  spatial_coords_df = rna_spatial_coords_filtered,
+  k_neighbors = k_coherence_neighbors,
+  num_random_comparisons = num_random_comparisons_val,
+  modality_name = "RNA",
+  n_workers = n_workers_val
+)
+print(rna_coherence_results_random$plot_comparison)
+ggsave("/projectnb/paxlab/phitro/CellWalkR2/R/figure/RNA_plot_comparison_rand.png", plot = rna_coherence_results_random$plot_comparison)
+
+message("\n--- Validating ATAC Graph Coherence Against Random ---")
+atac_coherence_results_random <- validateGraphCoherenceWithRandom(
+  feature_graph = atac_graph,
+  spatial_coords_df = atac_spatial_coords_filtered, # Use ATAC spatial coords for ATAC validation
+  k_neighbors = k_coherence_neighbors,
+  num_random_comparisons = num_random_comparisons_val,
+  modality_name = "ATAC",
+  n_workers = n_workers_val
+)
+print(atac_coherence_results_random$plot_comparison)
+ggsave("/projectnb/paxlab/phitro/CellWalkR2/R/figure/ATAC_plot_comparison_rand.png", plot = atac_coherence_results_random$plot_comparison)
+
+# Safely combine available coherence dataframes for joint plotting
+combined_coherence_df <- data.frame()
+# Helper to safely extract coherence_df and add modality label
+safe_bind <- function(x, label) {
+  if (!is.null(x) && is.list(x) && !is.null(x$coherence_df) && nrow(x$coherence_df) > 0) {
+    df <- x$coherence_df
+    if (!"modality" %in% colnames(df)) df$modality <- label
+    return(df)
+  } else {
+    return(NULL)
+  }
+}
+to_bind <- list(
+  safe_bind(rna_coherence_results, "RNA"),
+  safe_bind(atac_coherence_results, "ATAC"),
+  safe_bind(smoothed_rna_coherence_results, "Smoothed RNA"),
+  # include random validations if they have coherence_df
+  safe_bind(rna_coherence_results_random, "RNA_random"),
+  safe_bind(atac_coherence_results_random, "ATAC_random"),
+  safe_bind(smoothed_rna_coherence_results_random, "SmoothedRNA_random")
+)
+to_bind <- to_bind[!sapply(to_bind, is.null)]
+if (length(to_bind) > 0) { 
+  combined_coherence_df <- dplyr::bind_rows(Filter(Negate(is.null), to_bind))
+} else combined_coherence_df <- data.frame()
+
+# Re-plot combined densities to include Smoothed RNA
+p_joint_spatial_dist <- ggplot(combined_coherence_df, aes(x = median_spatial_dist_of_graph_neighbors, fill = modality)) +
+  geom_density(alpha = 0.6, adjust = 1.5) +
+  labs(title = paste0("Median Spatial Distance of Graph Neighbors (k=", k_coherence_neighbors, ")"),
+       x = "Median Spatial Distance (Lower = Better Coherence)", y = "Density", fill = "Modality") +
+  theme_minimal() + theme(plot.title = element_text(hjust = 0.5))
+print(p_joint_spatial_dist)
+ggsave("/projectnb/paxlab/phitro/CellWalkR2/R/figure/p_joint_spatial_dist_all.png", plot = p_joint_spatial_dist) # Changed filename
+
+p_joint_graph_sim <- ggplot(combined_coherence_df, aes(x = median_graph_sim_of_spatial_neighbors, fill = modality)) +
+  geom_density(alpha = 0.6, adjust = 1.5) +
+  labs(title = paste0("Median Graph Similarity of Spatial Neighbors (k=", k_coherence_neighbors, ")"),
+       x = "Median Graph Similarity (Higher = Better Coherence)", y = "Density", fill = "Modality") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
+print(p_joint_graph_sim)
+ggsave("/projectnb/paxlab/phitro/CellWalkR2/R/figure/p_joint_graph_sim_all.png", plot = p_joint_graph_sim) # Changed filename
+
+p_scatter_metrics <- ggplot(combined_coherence_df, aes(x = median_spatial_dist_of_graph_neighbors, y = median_graph_sim_of_spatial_neighbors, color = modality)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm", se = FALSE, linetype = "dashed") +
+  labs(title = paste0("Spatial-Graph Coherence per Cell (k=", k_coherence_neighbors, ")"),
+       x = "Median Spatial Distance of Graph Neighbors (Lower = Better)",
+       y = "Median Graph Similarity of Spatial Neighbors (Higher = Better)",
+       color = "Modality") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
+print(p_scatter_metrics)
+ggsave("/projectnb/paxlab/phitro/CellWalkR2/R/figure/p_scatter_metrics_all.png", plot = p_scatter_metrics) # Changed filename
+
+```
+
+# Analyzing Graph Contextual Similarity
+```{r Analyzing Graph Contextual Similarity}
+
+# --- Analyzing RNA Graph Contextual Similarity ---
+
+# Define parameters for the analysis
+k_spatial_neighbors_rna <- 20       # Number of spatially close neighbors to consider
+k_random_samples_rna <- 50         # Number of random cells to sample for baseline
+score_method_rna <- "normalized_ratio" # Method for score calculation
+
+# Run the analysis
+rna_context_similarity <- computeSpatialContextualFeatureScore(
+  feature_matrix_for_similarity = rna_graph,
+  spatial_coords_df = rna_spatial_coords_filtered,
+  k_neighbors = k_spatial_neighbors_rna,
+  modality_name = "RNA",
+  n_workers = 8,
+  batch_size = 1000L,
+  n_pca_embed = 50L,
+  score_method = "normalized_ratio"
+)
+
+# Display the spatial plot
+if (!is.null(rna_context_similarity$spatial_plot)) {
+  print(rna_context_similarity$spatial_plot)
+  ggsave("/projectnb/paxlab/phitro/CellWalkR2/R/figure/RNA_context_similarity_spatial.png", plot = rna_context_similarity$spatial_plot)
+}
+
+# Display the score distribution plot
+if (!is.null(rna_context_similarity$score_distribution_plot)) {
+  print(rna_context_similarity$score_distribution_plot)
+  ggsave("/projectnb/paxlab/phitro/CellWalkR2/R/figure/RNA_context_similarity_distribution.png", plot = rna_context_similarity$score_distribution_plot)
+}
+
+
+
+```
+
+# Analyse Graphs
+```{r Analyse Graphs}
+#' Analyze and Compare Sparse Feature Graphs
+#'
+#' \code{analyze_feature_graph()} analyzes the properties of a sparse feature graph
+#' (e.g., cell-cell similarity graph) and generates metrics and plots for interpretation.
+#' It calculates sparsity, edge count, similarity distribution, and captures graph construction details.
+#'
+#' @param graph A sparse matrix representing the cell-to-cell similarity graph.
+#' @param modality_name Character string for the modality (e.g., "RNA", "ATAC").
+#' @param k_neighbors Integer, the k value used for KNN graph construction.
+#' @param graph_method Character string describing the graph construction method (e.g., "PCA + kNN + Gaussian Similarity").
+#' @param similarity_decay Character string describing the similarity decay function used (e.g., "Gaussian", "Linear").
+#' @return A list containing analysis results: modality, num_cells, sparsity, edge count,
+#'   similarity range/median/mean, graph construction parameters, and a plot of similarity distribution.
+#' @export
+analyze_feature_graph <- function(graph, modality_name, k_neighbors, graph_method, similarity_decay) {
+  message("\n--- Analyzing Feature Graph for ", modality_name, " ---")
+  
+  # --- 1. Sparsity and Basic Edge Count ---
+  num_cells_graph <- nrow(graph)
+  total_possible_edges <- as.numeric(num_cells_graph) * as.numeric(num_cells_graph)
+  num_non_zero_edges <- Matrix::nnzero(graph)
+  
+  # Calculate sparsity as percentage of zeros.
+  # If num_cells_graph is 0 or 1, total_possible_edges might be 0 or 1.
+  if (total_possible_edges == 0) {
+      sparsity_percent_zeros <- 0 # Or NA, but 0 is reasonable if no cells.
+      connectivity_density <- 0
+  } else {
+      sparsity_percent_zeros <- 100 * (1 - num_non_zero_edges / total_possible_edges)
+      connectivity_density <- 100 * (num_non_zero_edges / total_possible_edges)
+  }
+
+  message("Graph Dimensions: ", num_cells_graph, "x", num_cells_graph)
+  message("Number of non-zero edges (connections): ", num_non_zero_edges)
+  message("Graph Sparsity (percentage of zeros): ", round(sparsity_percent_zeros, 2), "%")
+  message("Graph Connectivity Density (percentage of non-zeros): ", round(connectivity_density, 4), "%")
+  
+  # --- 2. Analyze Non-zero Similarity Values ---
+  # Extracting similarities assumes graph stores similarities
+  
+  graph_sims_dt <- data.table::as.data.table(Matrix::summary(graph))
+  non_zero_sims <- graph_sims_dt$x
+  
+  # Initialize results with NA/defaults for cases with no valid data
+  analysis_results_list <- list(
+    modality = modality_name,
+    num_cells = num_cells_graph,
+    sparsity_percent_zeros = round(sparsity_percent_zeros, 2),
+    num_edges = num_non_zero_edges,
+    min_sim = NA_real_, max_sim = NA_real_, mean_sim = NA_real_, median_sim = NA_real_,
+    k_neighbors = k_neighbors,
+    graph_method = graph_method,
+    similarity_decay = similarity_decay,
+    sim_hist_plot = NULL # Placeholder for plot
+  )
+  
+  if (length(non_zero_sims) == 0 || num_cells_graph <= 1) {
+    message("No non-zero similarities found or too few cells for similarity analysis.")
+    analysis_results_list$sim_hist_plot <- ggplot2::ggplot() + 
+      ggplot2::annotate("text", x = 0.5, y = 0.5, label = "No valid similarities to plot") + 
+      ggplot2::theme_void()
+    return(analysis_results_list)
+  }
+  
+  message("Analysis of Non-Zero Similarities:")
+  message("  Range: [", round(min(non_zero_sims), 3), ", ", round(max(non_zero_sims), 3), "]")
+  message("  Median: ", round(median(non_zero_sims), 3))
+  message("  Mean: ", round(mean(non_zero_sims), 3))
+  
+  analysis_results_list$min_sim <- round(min(non_zero_sims), 3)
+  analysis_results_list$max_sim <- round(max(non_zero_sims), 3)
+  analysis_results_list$mean_sim <- round(mean(non_zero_sims), 3)
+  analysis_results_list$median_sim <- round(median(non_zero_sims), 3)
+  
+  # --- 3. Histogram/Density Plot of non-zero similarities ---
+  # Adjust binwidth dynamically based on range, but cap it.
+  sim_range <- max(non_zero_sims) - min(non_zero_sims)
+  binwidth <- if (sim_range > 0) min(0.05, sim_range / 10) else 0.05
+  if (binwidth <= 0) binwidth <- 0.05 # Ensure binwidth is positive
+
+  sim_hist_plot <- ggplot2::ggplot(data.table::data.table(sim = non_zero_sims), ggplot2::aes(x = sim)) +
+    ggplot2::geom_histogram(aes(y = ..density..), binwidth = binwidth, fill = "skyblue", alpha = 0.7, color = "black") + 
+    ggplot2::geom_density(alpha = 0.4, fill = "blue") +
+    ggplot2::labs(title = paste0(modality_name, ": Similarity Distribution\n",
+                                 graph_method, " (k=", k_neighbors, ", Decay: ", similarity_decay, ")"),
+                  x = "Similarity Score", y = "Density") +
+    ggplot2::theme_minimal() +
+    ggplot2::theme(plot.title = ggplot2::element_text(hjust = 0.5, size = 10))
+  
+  analysis_results_list$sim_hist_plot <- sim_hist_plot
+  
+  return(analysis_results_list)
+}
+
+# --- Analysis of ATAC Gene Activity Matrix ---
+message("\n--- Analyzing ATAC Gene Activity Matrix ---")
+# Ensure 'atac_gene_activity_matrix_final' is the correct variable holding the ATAC gene activity matrix from r_29
+if (exists("atac_gene_activity_matrix_final") && !is.null(atac_gene_activity_matrix_final) && nrow(atac_gene_activity_matrix_final) > 0 && ncol(atac_gene_activity_matrix_final) > 0) {
+  
+  atac_gene_activity_matrix <- atac_gene_activity_matrix_final # Use the final variable
+  n_atac_cells <- nrow(atac_gene_activity_matrix)
+  n_atac_genes <- ncol(atac_gene_activity_matrix)
+  
+  # Calculate sparsity of the gene activity matrix
+  num_non_zero_atac_entries <- Matrix::nnzero(atac_gene_activity_matrix)
+  sparsity_atac_zeros <- 100 * (1 - num_non_zero_atac_entries / (n_atac_cells * n_atac_genes))
+  
+  message("ATAC Gene Activity Matrix Dimensions: ", n_atac_cells, "x", n_atac_genes)
+  message("Number of non-zero gene activity entries: ", num_non_zero_atac_entries)
+  message("ATAC Gene Activity Sparsity (zeros): ", round(sparsity_atac_zeros, 2), "%")
+  
+  # Gene activity per cell
+  genes_per_cell_atac <- Matrix::rowSums(atac_gene_activity_matrix > 0)
+  message("Average genes with non-zero activity per cell: ", round(mean(genes_per_cell_atac), 2))
+  message("Median genes with non-zero activity per cell: ", round(median(genes_per_cell_atac), 2))
+  
+  # Distribution of gene activity scores (non-zero values)
+  atac_gene_activity_scores <- atac_gene_activity_matrix@x # Access non-zero values
+  
+  if (length(atac_gene_activity_scores) > 0) {
+    message("Analysis of ATAC Gene Activity Scores (non-zero):")
+    message("  Range: [", round(min(atac_gene_activity_scores), 3), ", ", round(max(atac_gene_activity_scores), 3), "]")
+    message("  Median: ", round(median(atac_gene_activity_scores), 3))
+    message("  Mean: ", round(mean(atac_gene_activity_scores), 3))
+    
+    # Plot distribution of ATAC gene activity scores
+    activity_score_plot <- ggplot2::ggplot(data.table::data.table(score = atac_gene_activity_scores), ggplot2::aes(x = score)) +
+      ggplot2::geom_histogram(aes(y = ..density..), binwidth = 0.1, fill = "lightblue", alpha = 0.7, color = "black") +
+      ggplot2::geom_density(alpha = 0.4, fill = "blue") +
+      ggplot2::labs(title = "Distribution of ATAC Gene Activity Scores (Non-Zero)",
+                    x = "Gene Activity Score", y = "Density") +
+      ggplot2::theme_minimal() +
+      ggplot2::theme(plot.title = ggplot2::element_text(hjust = 0.5))
+    print(activity_score_plot)
+    
+  } else {
+    message("No non-zero ATAC gene activity scores found.")
+  }
+  
+} else {
+  message("ATAC gene activity matrix ('atac_gene_activity_matrix_final') not found or is empty. Skipping analysis.")
+}
+
+# --- Analysis of ATAC PCA ---
+message("\n--- Analyzing ATAC PCA ---")
+
+# Ensure 'atac_pca_res' is correctly stored and accessible from createATACCellGraph
+if (exists("atac_pca_res") && !is.null(atac_pca_res) && !is.null(atac_pca_res$sdev)) {
+  # Variance explained by each PC
+  var_explained_atac <- atac_pca_res$sdev^2 / sum(atac_pca_res$sdev^2)
+  
+  # Plot elbow plot for ATAC PCA
+  atac_pca_elbow_plot <- ggplot2::ggplot(data.table::data.table(PC = seq_along(var_explained_atac), Variance = var_explained_atac), ggplot2::aes(x = PC, y = Variance)) +
+    ggplot2::geom_point(size = 3, color = "darkblue") +
+    ggplot2::geom_line(color = "darkblue") +
+    ggplot2::labs(title = "ATAC PCA Variance Explained", x = "Principal Component", y = "Proportion of Variance Explained") +
+    ggplot2::theme_minimal() +
+    ggplot2::theme(plot.title = ggplot2::element_text(hjust = 0.5))
+  
+  message("First 5 PCs explain: ", paste(round(var_explained_atac[1:5]*100, 2), "%", collapse = ", "))
+  print(atac_pca_elbow_plot)
+  
+} else {
+  message("ATAC PCA results ('atac_pca_res') not found or not properly computed. Skipping PCA analysis.")
+  message("Ensure that 'createATACCellGraph' correctly stores and makes 'atac_pca_res' available if you want to analyze it.")
+}
+
+# --- Storing Graph Construction Info ---
+graph_construction_details <- list()
+
+# RNA Graph Info
+rna_method <- "PCA + kNN + Gaussian Similarity" # Matches createRNACellGraph logic
+rna_similarity_decay <- "Gaussian"
+rna_graph_params_details <- list(
+  k_neighbors = graph_params$rna_feature_k_neighbors,
+  pca_dims = graph_params$rna_feature_dims # Representing PC usage
+)
+# Populate RNA PCA variance if available from Seurat object
+if (!is.null(seurat_obj_rna_preprocessed) && !is.null(seurat_obj_rna_preprocessed@reductions$pca)) {
+  rna_pca_obj <- seurat_obj_rna_preprocessed@reductions$pca
+  if (!is.null(rna_pca_obj) && !is.null(rna_pca_obj@stdev)) {
+    rna_var_explained <- rna_pca_obj@stdev^2 / sum(rna_pca_obj@stdev^2)
+    dims_for_rna <- graph_params$rna_feature_dims
+    if (!is.null(dims_for_rna) && length(dims_for_rna) > 0 && length(rna_var_explained) >= max(dims_for_rna)) {
+      rna_graph_params_details$pca_variance_explained <- rna_var_explained[dims_for_rna]
+    } else {
+      rna_graph_params_details$pca_variance_explained <- rna_var_explained
+    }
+  }
+}
+graph_construction_details$RNA <- list(method = rna_method, similarity_decay = rna_similarity_decay, params = rna_graph_params_details)
+
+
+# ATAC Graph Info
+# Method description updated to reflect Gaussian kernel
+atac_method <- "Gene Activity + PCA + kNN + Gaussian Similarity"
+atac_similarity_decay <- "Gaussian" # Changed to Gaussian
+atac_graph_params_details <- list(
+  pca_dims = graph_params$atac_pca_dims,
+  k_neighbors = graph_params$atac_k_neighbors
+)
+# Populate ATAC PCA variance if available (assuming 'atac_pca_res' is created and stored in the environment)
+if (exists("atac_pca_res") && !is.null(atac_pca_res) && !is.null(atac_pca_res$sdev)) {
+  var_explained_atac <- atac_pca_res$sdev^2 / sum(atac_pca_res$sdev^2)
+  dims_for_atac <- graph_params$atac_pca_dims
+  if (!is.null(dims_for_atac) && length(dims_for_atac) > 0 && length(var_explained_atac) >= max(dims_for_atac)) {
+    atac_graph_params_details$pca_variance_explained <- var_explained_atac[dims_for_atac]
+  } else {
+    atac_graph_params_details$pca_variance_explained <- var_explained_atac
+  }
+}
+graph_construction_details$ATAC <- list(method = atac_method, similarity_decay = atac_similarity_decay, params = atac_graph_params_details)
+
+
+# --- Analyze Graphs and Store Results ---
+analysis_results <- list()
+
+# RNA Graph Analysis
+if (exists("rna_graph") && !is.null(rna_graph) && Matrix::nnzero(rna_graph) > 0) {
+  analysis_results$RNA <- analyze_feature_graph(
+    graph = rna_graph,
+    modality_name = "RNA",
+    k_neighbors = graph_params$rna_feature_k_neighbors, # Pass k
+    graph_method = graph_construction_details$RNA$method, # Pass method
+    similarity_decay = graph_construction_details$RNA$similarity_decay # Pass decay
+  )
+  analysis_results$RNA$construction_info <- graph_construction_details$RNA # Store detailed params
+  print(analysis_results$RNA$sim_hist_plot)
+  ggsave("/projectnb/paxlab/phitro/CellWalkR2/R/figure/RNA_graph_similarity_distribution.png", plot = analysis_results$RNA$sim_hist_plot)
+
+} else {
+  message("RNA graph is missing or empty. Skipping its analysis.")
+}
+
+# ATAC Graph Analysis
+if (exists("atac_graph") && !is.null(atac_graph) && Matrix::nnzero(atac_graph) > 0) {
+  analysis_results$ATAC <- analyze_feature_graph(
+    graph = atac_graph,
+    modality_name = "ATAC",
+    k_neighbors = graph_params$atac_k_neighbors, # Pass k
+    graph_method = graph_construction_details$ATAC$method, # Use the updated ATAC method description
+    similarity_decay = graph_construction_details$ATAC$similarity_decay # Use the updated ATAC decay
+  )
+  analysis_results$ATAC$construction_info <- graph_construction_details$ATAC # Store detailed params
+  print(analysis_results$ATAC$sim_hist_plot)
+  ggsave("/projectnb/paxlab/phitro/CellWalkR2/R/figure/ATAC_graph_similarity_distribution.png", plot = analysis_results$ATAC$sim_hist_plot)
+} else {
+  message("ATAC graph is missing or empty. Skipping its analysis.")
+}
+
+# Smoothed RNA Graph Analysis
+# Check if smoothed_rna_graph exists and is valid
+if (!is.null(smoothed_rna_graph) && Matrix::nnzero(smoothed_rna_graph) > 0) {
+  analysis_results$SmoothedRNA <- analyze_feature_graph(
+    graph = smoothed_rna_graph,
+    modality_name = "Smoothed RNA",
+    k_neighbors = graph_params$rna_feature_k_neighbors, # Use k from graph_params
+    graph_method = "Smoothed RNA PCA + kNN + Gaussian Similarity", # Custom method name
+    similarity_decay = "Gaussian" # Assuming Gaussian decay as per createRNACellGraph
+  )
+  # Store construction info specific to Smoothed RNA
+  analysis_results$SmoothedRNA$construction_info <- list(
+    method = "Smoothed RNA PCA + kNN + Gaussian Similarity",
+    similarity_decay = "Gaussian",
+    params = list(
+      k_neighbors = graph_params$rna_feature_k_neighbors,
+      pca_dims = graph_params$rna_feature_dims # Corresponds to PCs used from smoothed_seurat_obj
+    )
+  )
+  print(analysis_results$SmoothedRNA$sim_hist_plot)
+  ggsave("/projectnb/paxlab/phitro/CellWalkR2/R/figure/SmoothedRNA_graph_similarity_distribution.png", plot = analysis_results$SmoothedRNA$sim_hist_plot)
+} else {
+  message("Smoothed RNA graph is missing or empty. Skipping its analysis.")
+}
+
+
+# --- Compile and Print Summary Table of Graphs ---
+# This section relies on the analysis_results being populated correctly.
+# Now, compile the summary table including Smoothed RNA
+summary_table_graphs <- do.call(rbind, lapply(names(analysis_results), function(mod_name) {
+  res <- analysis_results[[mod_name]]
+  dt <- data.table::data.table(
+    Modality = mod_name,
+    Method = res$graph_method,
+    Sim_Decay = res$similarity_decay,
+    Num_Cells = res$num_cells,
+    Sparsity_Pct_Zeros = res$sparsity_percent_zeros,
+    Num_Edges = res$num_edges,
+    Min_Sim = res$min_sim,
+    Median_Sim = res$median_sim,
+    Mean_Sim = res$mean_sim,
+    Max_Sim = res$max_sim,
+    k_neighbors = res$k_neighbors
+  )
+  # Add PCA dim info if available
+  if (!is.null(res$construction_info) && !is.null(res$construction_info$params)) {
+      if (!is.null(res$construction_info$params$pca_dims)) {
+          pca_dims_value <- res$construction_info$params$pca_dims
+          # Format dims nicely, e.g., "1:30" or "1,2,3"
+          pca_dims_str <- if (is.numeric(pca_dims_value) && length(pca_dims_value) > 1) paste(min(pca_dims_value), ":", max(pca_dims_value), sep="") else paste(pca_dims_value, collapse=",")
+          dt[, PCA_Dims := pca_dims_str]
+      } else if (!is.null(res$construction_info$params$dims)) { # For original RNA graph
+          dims_value <- res$construction_info$params$dims
+          dims_str <- if (length(dims_value) > 1) paste(min(dims_value), ":", max(dims_value), sep="") else paste(dims_value, collapse=",")
+          dt[, PCA_Dims := dims_str]
+      } else {
+          dt[, PCA_Dims := NA]
+      }
+  } else {
+      dt[, PCA_Dims := NA]
+  }
+  return(dt)
+}))
+
+print("--- Feature Graph Construction and Similarity Summary ---")
+print(summary_table_graphs)
+
+# --- Plot Comparison of Similarity Distributions ---
+# Extract data for plotting, ensuring correct modalities and handling missing plots
+rna_sim_data <- if (!is.null(analysis_results$RNA$sim_hist_plot$data)) {
+    analysis_results$RNA$sim_hist_plot$data[, modality := "RNA"]
+} else {
+    data.table::data.table(sim = numeric(0), modality = factor(levels = c("RNA", "ATAC", "Smoothed RNA")))
+}
+atac_sim_data <- if (!is.null(analysis_results$ATAC$sim_hist_plot$data)) {
+    analysis_results$ATAC$sim_hist_plot$data[, modality := "ATAC"]
+} else {
+    data.table::data.table(sim = numeric(0), modality = factor(levels = c("RNA", "ATAC", "Smoothed RNA")))
+}
+smoothed_rna_sim_data <- if (!is.null(analysis_results$SmoothedRNA$sim_hist_plot$data)) {
+    analysis_results$SmoothedRNA$sim_hist_plot$data[, modality := "Smoothed RNA"]
+} else {
+    data.table::data.table(sim = numeric(0), modality = factor(levels = c("RNA", "ATAC", "Smoothed RNA")))
+}
+
+# Combine sim data, ensure modalities are factors with correct levels for plotting order
+combined_sim_dt <- data.table::rbindlist(list(rna_sim_data, atac_sim_data, smoothed_rna_sim_data), fill = TRUE)
+
+# Ensure modality factor levels are set correctly for facet/color order
+if (!is.null(combined_sim_dt) && nrow(combined_sim_dt) > 0) {
+    combined_sim_dt$modality <- factor(combined_sim_dt$modality, levels = c("RNA", "Smoothed RNA", "ATAC"))
+    
+    # Define plot labels for methods
+    rna_method_short <- gsub(" .*$", "", graph_construction_details$RNA$method) # e.g., "PCA"
+    atac_method_short <- gsub(" .*$", "", graph_construction_details$ATAC$method) # e.g., "Gene"
+    smoothed_rna_method_short <- "Smoothed RNA" # Simple name for smoothed RNA
+
+    sim_comparison_plot <- ggplot2::ggplot(combined_sim_dt, ggplot2::aes(x = sim, color = modality, fill = modality)) +
+      ggplot2::geom_density(alpha = 0.2) +
+      ggplot2::scale_color_brewer(palette = "Set1", name = "Modality") +
+      ggplot2::scale_fill_brewer(palette = "Set1", name = "Modality") +
+      ggplot2::labs(title = paste0("Comparison of Non-Zero Similarity Distributions"),
+                    x = "Similarity Score", y = "Density") +
+      ggplot2::facet_wrap(~modality, nrow = 3, scales = "free_y") + # Use facets for clearer separation
+      ggplot2::theme_minimal() +
+      ggplot2::theme(plot.title = ggplot2::element_text(hjust = 0.5, size = 10))
+
+    print(sim_comparison_plot)
+    ggsave("/projectnb/paxlab/phitro/CellWalkR2/R/figure/similarity_distributions_comparison.png", plot = sim_comparison_plot)
+} else {
+    message("No combined similarity data available for plotting comparison.")
+}
+
+
+# --- Interpretation Guidance ---
+message("\n--- Interpretation Guidance ---")
+message("1. Graph Construction Parameters:")
+message("   - Review the 'Feature Graph Construction and Similarity Summary' table.")
+message("   - RNA: Uses PCA on gene expression, kNN with Gaussian similarity, k=", graph_params$rna_feature_k_neighbors)
+message("   - Smoothed RNA: Similar to RNA but on spatially aggregated data, k=", graph_params$rna_feature_k_neighbors)
+message("   - ATAC: Uses Gene Activity + PCA on ATAC data, kNN with Gaussian similarity, k=", graph_params$atac_k_neighbors)
+message("   - Note the comparable use of Gaussian kernel and PCA-based feature spaces (where applicable) for RNA and ATAC, facilitating comparison.")
+message("2. Sparsity and Edge Count:")
+message("   - Higher 'Sparsity_Pct_Zeros' (lower 'Num_Edges') indicates sparser graphs.")
+message("   - Expect ATAC to potentially remain sparser due to the nature of ATAC profiles and peak-to-gene mapping compared to direct gene expression.")
+message("3. Similarity Distribution:")
+message("   - The plots compare the distribution of non-zero similarity scores across modalities.")
+message("   - A broader distribution and higher median/mean scores suggest more robust connectivity.")
+message("   - Compare the shapes for RNA, Smoothed RNA, and ATAC to understand how graph connectivity differs between modalities and after spatial smoothing.")
+message("4. ATAC Gene Activity and PCA Analysis:")
+message("   - Check the 'ATAC Gene Activity Matrix' sparsity and 'genes_per_cell_atac' metrics.")
+message("   - High sparsity or few active genes per cell may imply highly specific ATAC profiles, potentially leading to sparser graphs.")
+message("   - The 'ATAC PCA Variance Explained' plot (if generated) helps justify the chosen `atac_pca_dims`.")
+message("5. Validation Plots:")
+message("   - Review spatial coherence plots (`plotSpatialGraphCoherence` and `assessSpatialGraphCoherenceOverall` outputs) to check if feature graphs preserve spatial neighborhoods.")
+message("   - Compare plots against random cell connections (`validateGraphCoherenceWithRandom`) to assess statistical significance of observed patterns.")
+message("6. Conclusion for PI:")
+message("   - Summarize findings regarding graph properties and spatial coherence for each modality.")
+message("   - Discuss how smoothed RNA graph's properties compare to original RNA and ATAC graphs.")
+message("   - 'The smoothed RNA graph shows an intermediate sparsity and similarity distribution between the original RNA and ATAC graphs, suggesting spatial aggregation bridges some connectivity differences.'")
+message("   - 'The validation metrics (coherence scores, comparison to random) will indicate how well each graph represents spatial relationships, informing downstream CellWalker2 integration.'")
+```
+
+
+
+
+
+```{r}
+a = readRDS(file.path(output_philipp, 'cellwalker2_map_results_list.rds'))
+```
+
+
+
+
+
+
+
+
+
+
+

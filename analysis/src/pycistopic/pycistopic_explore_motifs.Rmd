@@ -1,0 +1,105 @@
+---
+title: "pycistopic_explore_motifs"
+
+---
+
+
+```{r}
+BiocManager::install("RcisTarget")
+```
+
+
+```{bash}
+# Specify database:
+feather_database_url='https://resources.aertslab.org/cistarget/databases/homo_sapiens/hg38/screen/mc_v10_clust/region_based/hg38_screen_v10_clust.regions_vs_motifs.rankings.feather'
+# feather_database_url='https://resources.aertslab.org/cistarget/databases/homo_sapiens/hg38/screen/mc_v10_clust/region_based/hg38_screen_v10_clust.regions_vs_motifs.scores.feather'
+feather_database="${feather_database_url##*/}"
+
+# Download database directly (with wget or curl):
+<!-- wget "${feather_database_url}" -->
+# curl -O "${feather_database_url}"
+
+wget --continue --tries=0 --retry-connrefused --waitretry=5 --read-timeout=20 "${feather_database_url}"
+
+
+
+```
+
+sha256sum original -> 1688a925f22d312769798258d990f13866bb4924 
+
+
+```{r}
+library(RcisTarget)
+packageVersion("RcisTarget")
+
+```
+
+```{r}
+
+
+
+# txtFile <- paste(file.path(system.file('examples', package='RcisTarget')),"Encode_GATA1_peaks.bed", sep="/")
+txtFile <- "/projectnb/paxlab/presh/projects/spatial_atac/Data/pycistopic/outs/region_sets/Topics_otsu/Topic27.bed"
+regionsList <- rtracklayer::import.bed(txtFile)
+regionSets <- list(GATA1_peaks=regionsList)
+```
+
+
+
+```{r}
+library(RcisTarget)
+# Motif rankings
+featherFilePath <- "/projectnb/paxlab/presh/software/Rcistarget/hg38_screen_v10_clust.regions_vs_motifs.rankings.feather"
+
+## Motif - TF annotation:
+data(motifAnnotations_hgnc_v9) # human TFs (for motif collection 9)
+motifAnnotation <- motifAnnotations_hgnc_v9
+
+# Regions location *
+data("dbRegionsLoc_hg19_v9")
+
+dbRegionsLoc <- getDbRegionsLoc(featherFilePath)
+
+
+Sys.setenv(LIBARROW_MINIMAL = "false")
+Sys.setenv(ARROW_WITH_ZSTD = "ON")
+install.packages("arrow", verbose= T)
+library(arrow)
+arrow_info()$capabilities
+
+
+motifRankings <- importRankings("/projectnb/paxlab/presh/software/Rcistarget/hg38_screen_v10_clust.regions_vs_motifs.rankings.feather")
+
+# 3. Get the regions directly from the ranking object (if not using separate .bed)
+# This will replace the need for "dbRegionsLoc_hg19_v9"
+regionLocs <- getDbRegionsLoc(motifRankings)
+```
+
+
+```{r}
+# 1. Clear the current failed/minimal install from the session
+detach("package:arrow", unload = TRUE)
+
+# 2. Set environment variables to request a full-featured binary
+Sys.setenv(LIBARROW_MINIMAL = "false")
+Sys.setenv(NOT_CRAN = "true")
+
+# 3. Reinstall arrow
+# Using the Posit Package Manager URL ensures you get a pre-compiled Linux binary 
+# with all codecs (zstd, snappy, etc.) enabled.
+install.packages("arrow", repos = "https://cloud.r-project.org")
+
+# 4. Verify zstd is now supported
+library(arrow)
+codec_is_available("zstd") # Should return TRUE
+```
+
+```{r}
+library(RcisTarget)
+motifRankings <- importRankings("/projectnb/paxlab/presh/software/Rcistarget/hg38_screen_v10_clust.regions_vs_motifs.rankings.feather")
+
+# 3. Get the regions directly from the ranking object (if not using separate .bed)
+# This will replace the need for "dbRegionsLoc_hg19_v9"
+regionLocs <- getDbRegionsLoc(motifRankings)
+```
+

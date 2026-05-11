@@ -1,1 +1,1 @@
-../../qsub/numbat/run_numbat_deepseq.qsub.sh
+../../../../qsub/numbat/run_numbat_deepseq.qsub.sh

@@ -1,1 +1,1 @@
-../../../qsub/alleloscope/run_alleloscope_deepseq.qsub.sh
+../../../../../qsub/alleloscope/run_alleloscope_deepseq.qsub.sh

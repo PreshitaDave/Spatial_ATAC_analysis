@@ -1,1 +1,0 @@
-../qsub/pipeline/run_12_somatic_char.qsub.sh

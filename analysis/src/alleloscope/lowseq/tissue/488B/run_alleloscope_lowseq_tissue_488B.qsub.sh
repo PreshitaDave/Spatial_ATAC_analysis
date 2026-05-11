@@ -1,1 +1,0 @@
-../../../../../qsub/alleloscope/lowseq/tissue/488B/run_alleloscope_lowseq_tissue_488B.qsub.sh

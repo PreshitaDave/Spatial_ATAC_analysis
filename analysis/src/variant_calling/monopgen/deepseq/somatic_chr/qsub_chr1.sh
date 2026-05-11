@@ -4,10 +4,10 @@
 #$ -N mono_chr1
 #$ -l mem_per_core=8G
 #$ -pe omp 8
-#$ -o /projectnb/paxlab/presh/projects/spatial_atac/analysis/src/monopgen/deepseq/somatic_chr/qsub_logs_deep/chr1.log
-#$ -e /projectnb/paxlab/presh/projects/spatial_atac/analysis/src/monopgen/deepseq/somatic_chr/qsub_logs_deep/chr1.error.log
+#$ -o /projectnb/paxlab/presh/projects/spatial_atac/analysis/src/variant_calling/monopgen/deepseq/somatic_chr/qsub_logs_deep/chr1.log
+#$ -e /projectnb/paxlab/presh/projects/spatial_atac/analysis/src/variant_calling/monopgen/deepseq/somatic_chr/qsub_logs_deep/chr1.error.log
 
-mkdir -p /projectnb/paxlab/presh/projects/spatial_atac/analysis/src/monopgen/deepseq/somatic_chr/qsub_logs_deep
+mkdir -p /projectnb/paxlab/presh/projects/spatial_atac/analysis/src/variant_calling/monopgen/deepseq/somatic_chr/qsub_logs_deep
 echo "Job started at $(date)" >&2
 
 export PATH="/projectnb/paxlab/presh/env/conda_env/monopgen_env/bin:$PATH"

@@ -4,7 +4,7 @@ MONOPOGEN_PATH="/projectnb/paxlab/presh/software/Monopogen"
 REF_FA="/projectnb/paxlab/presh/projects/spatial_atac/Data/hg38_resources/Homo_sapiens_assembly38.fasta"
 CHR_LIST="/projectnb/paxlab/presh/projects/spatial_atac/Data/variant_calling/chr_region.lst"
 MONOPOGEN_ENV="/projectnb/paxlab/presh/env/conda_env/monopgen_env"
-SCRIPT_DIR="/projectnb/paxlab/presh/projects/spatial_atac/analysis/src/monopgen/lowseq/somatic_chr"
+SCRIPT_DIR="/projectnb/paxlab/presh/projects/spatial_atac/analysis/src/variant_calling/monopgen/lowseq/somatic_chr"
 
 cd "$SCRIPT_DIR"
 

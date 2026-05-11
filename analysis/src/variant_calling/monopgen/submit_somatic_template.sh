@@ -12,7 +12,7 @@ MONOPOGEN_PATH="/projectnb/paxlab/presh/software/Monopogen"
 REF_FA="/projectnb/paxlab/presh/projects/spatial_atac/Data/hg38_resources/Homo_sapiens_assembly38.fasta"
 REGION_FILE="/projectnb/paxlab/presh/software/Monopogen/resource/GRCh38.region.lst"
 MONOPOGEN_ENV="/projectnb/paxlab/presh/env/conda_env/monopgen_env"
-SCRIPT_DIR="/projectnb/paxlab/presh/projects/spatial_atac/analysis/src/monopgen/${DATASET_NAME}/somatic_chr"
+SCRIPT_DIR="/projectnb/paxlab/presh/projects/spatial_atac/analysis/src/variant_calling/monopgen/${DATASET_NAME}/somatic_chr"
 
 cd "$SCRIPT_DIR" || { echo "Cannot cd to $SCRIPT_DIR"; exit 1; }
 

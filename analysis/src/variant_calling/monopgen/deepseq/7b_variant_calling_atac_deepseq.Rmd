@@ -255,7 +255,7 @@ Look at somatic_final.sh
 
 And then run individual somatic_chr shell files !
 
-cd /projectnb/paxlab/presh/projects/spatial_atac/analysis/src/monopgen/deepseq
+cd /projectnb/paxlab/presh/projects/spatial_atac/analysis/src/variant_calling/monopgen/deepseq
 bash submit_chr_jobs.sh
 for f in somatic_chr/qsub_*.sh; do qsub "$f"; done
 

@@ -78,13 +78,13 @@ bash analysis/src/numbat/setup_numbat_tools.sh
 Lowseq full run:
 
 ```bash
-qsub analysis/src/numbat/run_numbat_lowseq.qsub.sh
+qsub analysis/qsub/pipeline/numbat/run_numbat_lowseq.qsub.sh
 ```
 
 Deepseq full run:
 
 ```bash
-qsub analysis/src/numbat/run_numbat_deepseq.qsub.sh
+qsub analysis/qsub/pipeline/numbat/run_numbat_deepseq.qsub.sh
 ```
 
 Provenance in this workspace:

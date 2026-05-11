@@ -23,7 +23,7 @@ module load R
 # Outputs consumed: analysis/comparison/tissue_variants/{dataset}_{set}.tsv
 #
 # Run script 11 first if outputs are missing:
-#   qsub analysis/src/run_11_comparing_tissue_variants.qsub.sh
+#   qsub analysis/qsub/pipeline/run_11_comparing_tissue_variants.qsub.sh
 # ──────────────────────────────────────────────────────────────────────────
 
 export COMP_DIR="${COMP_DIR:-analysis/comparison/tissue_variants}"

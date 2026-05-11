@@ -3,7 +3,7 @@ set -euo pipefail
 
 PROJECT_ROOT="/projectnb/paxlab/presh/projects/spatial_atac"
 LOG_DIR="${PROJECT_ROOT}/analysis/qsub_logs"
-SCRIPT="${PROJECT_ROOT}/analysis/src/alleloscope/gatk/run_gatk_hc_chr.qsub.sh"
+SCRIPT="${PROJECT_ROOT}/analysis/qsub/pipeline/alleloscope/gatk/run_gatk_hc_chr.qsub.sh"
 DATASETS="${DATASETS:-deepseq lowseq}"
 CHR_START="${CHR_START:-1}"
 CHR_END="${CHR_END:-22}"

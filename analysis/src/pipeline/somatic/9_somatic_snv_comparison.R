@@ -19,6 +19,11 @@ dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 
 chromosomes <- paste0("chr", 1:22)
 
+# Helper utilities to safely access columns and compute maxima
+has_col <- function(df, name) { !is.null(df) && name %in% names(df) && length(df[[name]]) > 0 }
+safe_vec <- function(df, name) { if (has_col(df, name)) as.numeric(df[[name]]) else numeric(0) }
+safe_max <- function(x, default = 1) { x2 <- x[is.finite(x)]; if (length(x2) == 0) default else max(x2) }
+
 # --- Step 1: Load all putativeSNVs.csv ---
 cat("\n--- Loading putativeSNVs for all chromosomes ---\n")
 
@@ -158,12 +163,14 @@ cat("  Plot 3: Jaccard similarity\n")
 par(mfrow = c(1, 2), mar = c(7, 5, 3, 1))
 
 barplot(chr_summary$jaccard_raw, names.arg = gsub("chr", "", chromosomes),
-        col = "gray60", main = "Jaccard Similarity (Raw)",
-        ylab = "Jaccard Index", las = 2, cex.names = 0.8, ylim = c(0, max(chr_summary$jaccard_raw, na.rm = TRUE) * 1.2))
+  col = "gray60", main = "Jaccard Similarity (Raw)",
+  ylab = "Jaccard Index", las = 2, cex.names = 0.8,
+  ylim = c(0, safe_max(chr_summary$jaccard_raw, default = 1) * 1.2))
 
 barplot(chr_summary$jaccard_filt, names.arg = gsub("chr", "", chromosomes),
-        col = "darkgreen", main = "Jaccard Similarity (Filtered)",
-        ylab = "Jaccard Index", las = 2, cex.names = 0.8, ylim = c(0, max(chr_summary$jaccard_filt, na.rm = TRUE) * 1.2))
+  col = "darkgreen", main = "Jaccard Similarity (Filtered)",
+  ylab = "Jaccard Index", las = 2, cex.names = 0.8,
+  ylim = c(0, safe_max(chr_summary$jaccard_filt, default = 1) * 1.2))
 
 # =============================================
 # PLOT 4: SVM score distributions
@@ -171,12 +178,14 @@ barplot(chr_summary$jaccard_filt, names.arg = gsub("chr", "", chromosomes),
 cat("  Plot 4: SVM score distributions\n")
 par(mfrow = c(1, 2), mar = c(5, 5, 3, 1))
 
-if (nrow(deep_all) > 0) {
-  hist(deep_all$SVM_pos_score, breaks = 50, col = rgb(0.27, 0.51, 0.71, 0.6),
+svm_deep <- safe_vec(deep_all, "SVM_pos_score")
+svm_low  <- safe_vec(low_all, "SVM_pos_score")
+if (length(svm_deep) > 0) {
+  hist(svm_deep, breaks = 50, col = rgb(0.27, 0.51, 0.71, 0.6),
        main = "SVM Positive Score\n(Filtered Somatic SNVs)",
        xlab = "SVM Positive Score", ylab = "Frequency")
-  if (nrow(low_all) > 0) {
-    hist(low_all$SVM_pos_score, breaks = 50, col = rgb(1, 0.5, 0.31, 0.5), add = TRUE)
+  if (length(svm_low) > 0) {
+    hist(svm_low, breaks = 50, col = rgb(1, 0.5, 0.31, 0.5), add = TRUE)
     legend("topleft", c("Deepseq", "Lowseq"), fill = c(rgb(0.27, 0.51, 0.71, 0.6), rgb(1, 0.5, 0.31, 0.5)))
   }
 }
@@ -186,12 +195,14 @@ if (nrow(deep_all) > 0) {
 # =============================================
 cat("  Plot 5: LD refinement scores\n")
 
-if (nrow(deep_all) > 0) {
-  hist(deep_all$LDrefine_merged_score, breaks = 50, col = rgb(0.27, 0.51, 0.71, 0.6),
+ld_deep <- safe_vec(deep_all, "LDrefine_merged_score")
+ld_low  <- safe_vec(low_all, "LDrefine_merged_score")
+if (length(ld_deep) > 0) {
+  hist(ld_deep, breaks = 50, col = rgb(0.27, 0.51, 0.71, 0.6),
        main = "LD Refinement Merged Score\n(Filtered Somatic SNVs)",
        xlab = "LDrefine Merged Score", ylab = "Frequency")
-  if (nrow(low_all) > 0) {
-    hist(low_all$LDrefine_merged_score, breaks = 50, col = rgb(1, 0.5, 0.31, 0.5), add = TRUE)
+  if (length(ld_low) > 0) {
+    hist(ld_low, breaks = 50, col = rgb(1, 0.5, 0.31, 0.5), add = TRUE)
     legend("topleft", c("Deepseq", "Lowseq"), fill = c(rgb(0.27, 0.51, 0.71, 0.6), rgb(1, 0.5, 0.31, 0.5)))
   }
 }
@@ -202,13 +213,15 @@ if (nrow(deep_all) > 0) {
 cat("  Plot 6: BAF distributions\n")
 par(mfrow = c(1, 2), mar = c(5, 5, 3, 1))
 
-if (nrow(deep_all) > 0) {
-  hist(deep_all$BAF_alt, breaks = 50, col = "steelblue",
+deep_baf <- safe_vec(deep_all, "BAF_alt")
+low_baf  <- safe_vec(low_all, "BAF_alt")
+if (length(deep_baf) > 0) {
+  hist(deep_baf, breaks = 50, col = "steelblue",
        main = "BAF Alt - Deepseq\n(Filtered)", xlab = "BAF Alt", ylab = "Frequency")
 }
 
-if (nrow(low_all) > 0) {
-  hist(low_all$BAF_alt, breaks = 50, col = "coral",
+if (length(low_baf) > 0) {
+  hist(low_baf, breaks = 50, col = "coral",
        main = "BAF Alt - Lowseq\n(Filtered)", xlab = "BAF Alt", ylab = "Frequency")
 }
 
@@ -218,20 +231,24 @@ if (nrow(low_all) > 0) {
 cat("  Plot 7: Depth distributions\n")
 par(mfrow = c(2, 2), mar = c(5, 5, 3, 1))
 
-if (nrow(deep_all) > 0) {
-  hist(log10(deep_all$Depth_total + 1), breaks = 50, col = "steelblue",
+deep_total <- safe_vec(deep_all, "Depth_total")
+low_total  <- safe_vec(low_all, "Depth_total")
+deep_alt   <- safe_vec(deep_all, "Depth_alt")
+low_alt    <- safe_vec(low_all, "Depth_alt")
+if (length(deep_total) > 0) {
+  hist(log10(deep_total + 1), breaks = 50, col = "steelblue",
        main = "Total Depth - Deepseq", xlab = "log10(Depth + 1)")
 }
-if (nrow(low_all) > 0) {
-  hist(log10(low_all$Depth_total + 1), breaks = 50, col = "coral",
+if (length(low_total) > 0) {
+  hist(log10(low_total + 1), breaks = 50, col = "coral",
        main = "Total Depth - Lowseq", xlab = "log10(Depth + 1)")
 }
-if (nrow(deep_all) > 0) {
-  hist(deep_all$Depth_alt, breaks = 50, col = "steelblue",
+if (length(deep_alt) > 0) {
+  hist(deep_alt, breaks = 50, col = "steelblue",
        main = "Alt Depth - Deepseq", xlab = "Alt Allele Depth")
 }
-if (nrow(low_all) > 0) {
-  hist(low_all$Depth_alt, breaks = 50, col = "coral",
+if (length(low_alt) > 0) {
+  hist(low_alt, breaks = 50, col = "coral",
        main = "Alt Depth - Lowseq", xlab = "Alt Allele Depth")
 }
 
@@ -241,7 +258,7 @@ if (nrow(low_all) > 0) {
 cat("  Plot 8: Scatter deep vs low per chr\n")
 par(mfrow = c(1, 1), mar = c(5, 5, 3, 1))
 
-max_val <- max(c(chr_summary$deep_filtered, chr_summary$low_filtered))
+max_val <- safe_max(c(chr_summary$deep_filtered, chr_summary$low_filtered), default = 1)
 plot(chr_summary$deep_filtered, chr_summary$low_filtered,
      pch = 19, col = "darkblue", cex = 1.5,
      xlim = c(0, max_val * 1.1), ylim = c(0, max_val * 1.1),
@@ -377,36 +394,60 @@ if (length(overlap_all) > 0) {
   low_unique  <- low_all[!low_all$snv_id %in% overlap_all, ]
 
   # SVM scores shared vs unique
-  boxplot(list("Deep\nShared" = deep_shared$SVM_pos_score,
-               "Deep\nUnique" = deep_unique$SVM_pos_score,
-               "Low\nShared" = low_shared$SVM_pos_score,
-               "Low\nUnique" = low_unique$SVM_pos_score),
-          col = c("steelblue", "lightblue", "coral", "lightyellow"),
-          main = "SVM Score: Shared vs Unique", ylab = "SVM Positive Score")
+  svm_ds <- safe_vec(deep_shared, "SVM_pos_score")
+  svm_du <- safe_vec(deep_unique, "SVM_pos_score")
+  svm_ls <- safe_vec(low_shared, "SVM_pos_score")
+  svm_lu <- safe_vec(low_unique, "SVM_pos_score")
+  if (length(svm_ds) + length(svm_du) + length(svm_ls) + length(svm_lu) > 0) {
+    boxplot(list("Deep\nShared" = svm_ds,
+        "Deep\nUnique" = svm_du,
+        "Low\nShared" = svm_ls,
+        "Low\nUnique" = svm_lu),
+      col = c("steelblue", "lightblue", "coral", "lightyellow"),
+      main = "SVM Score: Shared vs Unique", ylab = "SVM Positive Score")
+  }
 
   # LD scores shared vs unique
-  boxplot(list("Deep\nShared" = deep_shared$LDrefine_merged_score,
-               "Deep\nUnique" = deep_unique$LDrefine_merged_score,
-               "Low\nShared" = low_shared$LDrefine_merged_score,
-               "Low\nUnique" = low_unique$LDrefine_merged_score),
-          col = c("steelblue", "lightblue", "coral", "lightyellow"),
-          main = "LD Refinement Score: Shared vs Unique", ylab = "LDrefine Merged Score")
+  ld_ds <- safe_vec(deep_shared, "LDrefine_merged_score")
+  ld_du <- safe_vec(deep_unique, "LDrefine_merged_score")
+  ld_ls <- safe_vec(low_shared, "LDrefine_merged_score")
+  ld_lu <- safe_vec(low_unique, "LDrefine_merged_score")
+  if (length(ld_ds) + length(ld_du) + length(ld_ls) + length(ld_lu) > 0) {
+    boxplot(list("Deep\nShared" = ld_ds,
+        "Deep\nUnique" = ld_du,
+        "Low\nShared" = ld_ls,
+        "Low\nUnique" = ld_lu),
+      col = c("steelblue", "lightblue", "coral", "lightyellow"),
+      main = "LD Refinement Score: Shared vs Unique", ylab = "LDrefine Merged Score")
+  }
 
   # BAF shared vs unique
-  boxplot(list("Deep\nShared" = deep_shared$BAF_alt,
-               "Deep\nUnique" = deep_unique$BAF_alt,
-               "Low\nShared" = low_shared$BAF_alt,
-               "Low\nUnique" = low_unique$BAF_alt),
-          col = c("steelblue", "lightblue", "coral", "lightyellow"),
-          main = "BAF Alt: Shared vs Unique", ylab = "BAF Alt")
+  baf_ds <- safe_vec(deep_shared, "BAF_alt")
+  baf_du <- safe_vec(deep_unique, "BAF_alt")
+  baf_ls <- safe_vec(low_shared, "BAF_alt")
+  baf_lu <- safe_vec(low_unique, "BAF_alt")
+  if (length(baf_ds) + length(baf_du) + length(baf_ls) + length(baf_lu) > 0) {
+    boxplot(list("Deep\nShared" = baf_ds,
+        "Deep\nUnique" = baf_du,
+        "Low\nShared" = baf_ls,
+        "Low\nUnique" = baf_lu),
+      col = c("steelblue", "lightblue", "coral", "lightyellow"),
+      main = "BAF Alt: Shared vs Unique", ylab = "BAF Alt")
+  }
 
   # Depth shared vs unique
-  boxplot(list("Deep\nShared" = log10(deep_shared$Depth_total + 1),
-               "Deep\nUnique" = log10(deep_unique$Depth_total + 1),
-               "Low\nShared" = log10(low_shared$Depth_total + 1),
-               "Low\nUnique" = log10(low_unique$Depth_total + 1)),
-          col = c("steelblue", "lightblue", "coral", "lightyellow"),
-          main = "Total Depth: Shared vs Unique", ylab = "log10(Depth + 1)")
+  dt_ds <- safe_vec(deep_shared, "Depth_total")
+  dt_du <- safe_vec(deep_unique, "Depth_total")
+  dt_ls <- safe_vec(low_shared, "Depth_total")
+  dt_lu <- safe_vec(low_unique, "Depth_total")
+  if (length(dt_ds) + length(dt_du) + length(dt_ls) + length(dt_lu) > 0) {
+    boxplot(list("Deep\nShared" = log10(dt_ds + 1),
+        "Deep\nUnique" = log10(dt_du + 1),
+        "Low\nShared" = log10(dt_ls + 1),
+        "Low\nUnique" = log10(dt_lu + 1)),
+      col = c("steelblue", "lightblue", "coral", "lightyellow"),
+      main = "Total Depth: Shared vs Unique", ylab = "log10(Depth + 1)")
+  }
 }
 
 # =============================================
@@ -426,15 +467,19 @@ if (length(overlap_all) > 0) {
   deep_shared_ord <- deep_shared_ord[common_ids, ]
   low_shared_ord  <- low_shared_ord[common_ids, ]
 
-  plot(deep_shared_ord$BAF_alt, low_shared_ord$BAF_alt,
-       pch = 19, cex = 0.5, col = rgb(0, 0, 0, 0.3),
-       main = "BAF Alt Correlation: Shared Somatic SNVs",
-       xlab = "Deepseq BAF Alt", ylab = "Lowseq BAF Alt",
-       xlim = c(0, 0.5), ylim = c(0, 0.5))
-  abline(0, 1, lty = 2, col = "red")
-  baf_cor <- cor(deep_shared_ord$BAF_alt, low_shared_ord$BAF_alt, use = "complete.obs")
-  legend("topleft", paste0("r = ", round(baf_cor, 3), "\nn = ", length(common_ids)),
-         bty = "n", cex = 1.2)
+  baf_deep_shared <- safe_vec(deep_shared_ord, "BAF_alt")
+  baf_low_shared  <- safe_vec(low_shared_ord, "BAF_alt")
+  if (length(baf_deep_shared) > 0 && length(baf_low_shared) > 0) {
+    plot(baf_deep_shared, baf_low_shared,
+         pch = 19, cex = 0.5, col = rgb(0, 0, 0, 0.3),
+         main = "BAF Alt Correlation: Shared Somatic SNVs",
+         xlab = "Deepseq BAF Alt", ylab = "Lowseq BAF Alt",
+         xlim = c(0, 0.5), ylim = c(0, 0.5))
+    abline(0, 1, lty = 2, col = "red")
+    baf_cor <- cor(baf_deep_shared, baf_low_shared, use = "complete.obs")
+    legend("topleft", paste0("r = ", round(baf_cor, 3), "\nn = ", length(common_ids)),
+           bty = "n", cex = 1.2)
+  }
 }
 
 dev.off()

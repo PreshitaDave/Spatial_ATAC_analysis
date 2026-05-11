@@ -1,1 +1,0 @@
-../../qsub/numbat/resume_phasing_lowseq.qsub.sh

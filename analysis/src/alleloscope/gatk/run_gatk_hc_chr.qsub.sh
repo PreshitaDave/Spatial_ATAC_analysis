@@ -1,1 +1,0 @@
-../../../qsub/alleloscope/gatk/run_gatk_hc_chr.qsub.sh

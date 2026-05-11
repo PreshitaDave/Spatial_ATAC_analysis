@@ -37,17 +37,17 @@ This folder contains scripts that organize tissue-level files and avoid expensiv
 1. Build total-barcode tissue BAM/fragments:
 
 ```bash
-qsub analysis/src/data_org/build_total_tissue_bam_fragments.qsub.sh
+qsub analysis/qsub/pipeline/data_org/build_total_tissue_bam_fragments.qsub.sh
 ```
 
 2. Save ArchR tissue no-edge projects:
 
 ```bash
-qsub analysis/src/data_org/run_save_archr_tissue_no_edge.qsub.sh
+qsub analysis/qsub/pipeline/data_org/run_save_archr_tissue_no_edge.qsub.sh
 ```
 
 3. Build lowseq tissue-specific Alleloscope inputs from existing outputs:
 
 ```bash
-qsub analysis/src/data_org/run_prepare_lowseq_alleloscope_tissue_from_existing.qsub.sh
+qsub analysis/qsub/pipeline/data_org/run_prepare_lowseq_alleloscope_tissue_from_existing.qsub.sh
 ```

@@ -4,11 +4,11 @@
 #$ -N mono_chr12
 #$ -l mem_per_core=8G
 #$ -pe omp 8
-#$ -o /projectnb/paxlab/presh/projects/spatial_atac/analysis/src/monopgen/lowseq/somatic_chr/qsub_logs/chr12.log
-#$ -e /projectnb/paxlab/presh/projects/spatial_atac/analysis/src/monopgen/lowseq/somatic_chr/qsub_logs/chr12.error.log
+#$ -o /projectnb/paxlab/presh/projects/spatial_atac/analysis/src/variant_calling/monopgen/lowseq/somatic_chr/qsub_logs/chr12.log
+#$ -e /projectnb/paxlab/presh/projects/spatial_atac/analysis/src/variant_calling/monopgen/lowseq/somatic_chr/qsub_logs/chr12.error.log
 
 # Create log directory if it doesn't exist
-mkdir -p /projectnb/paxlab/presh/projects/spatial_atac/analysis/src/monopgen/lowseq/somatic_chr/qsub_logs
+mkdir -p /projectnb/paxlab/presh/projects/spatial_atac/analysis/src/variant_calling/monopgen/lowseq/somatic_chr/qsub_logs
 
 echo "========================================" >&2
 echo "Job started at $(date)" >&2

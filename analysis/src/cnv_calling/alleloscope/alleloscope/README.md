@@ -12,13 +12,13 @@ This folder contains the Alleloscope preparation and analysis scripts for the sp
 
 ### Data organization wrappers
 
-- `analysis/src/data_org/build_total_tissue_bam_fragments.qsub.sh`
+- `analysis/qsub/pipeline/data_org/build_total_tissue_bam_fragments.qsub.sh`
   - Builds per-tissue BAM and fragments files from total tissue barcodes.
   - Uses D1942 fragment sources configured in `build_tissue_files.sh`.
-- `analysis/src/data_org/run_save_archr_tissue_no_edge.qsub.sh`
+- `analysis/qsub/pipeline/data_org/run_save_archr_tissue_no_edge.qsub.sh`
   - Runs `analysis/src/data_org/save_archr_tissue_no_edge.R`.
   - Saves ArchR projects for each dataset+tissue after removing edge barcodes.
-- `analysis/src/data_org/run_prepare_lowseq_alleloscope_tissue_from_existing.qsub.sh`
+- `analysis/qsub/pipeline/data_org/run_prepare_lowseq_alleloscope_tissue_from_existing.qsub.sh`
   - Runs `analysis/src/data_org/prepare_lowseq_alleloscope_tissue_from_existing.R`.
   - Reuses existing lowseq/deepseq Alleloscope inputs to build tissue-specific lowseq inputs (no full rerun).
 
@@ -102,13 +102,13 @@ cd /projectnb/paxlab/presh/projects/spatial_atac
 ### 1) Prepare lowseq inputs (if not already present)
 
 ```bash
-qsub analysis/src/alleloscope/run_prepare_alleloscope_lowseq.qsub.sh
+qsub analysis/qsub/pipeline/alleloscope/run_prepare_alleloscope_lowseq.qsub.sh
 ```
 
 ### 2) Run full lowseq Alleloscope analysis
 
 ```bash
-qsub analysis/src/alleloscope/run_alleloscope_lowseq.qsub.sh
+qsub analysis/qsub/pipeline/alleloscope/run_alleloscope_lowseq.qsub.sh
 ```
 
 Provenance in this workspace:
@@ -118,13 +118,13 @@ Provenance in this workspace:
 ### 3) Prepare deepseq inputs (if not already present)
 
 ```bash
-qsub analysis/src/alleloscope/run_prepare_alleloscope_deepseq.qsub.sh
+qsub analysis/qsub/pipeline/alleloscope/run_prepare_alleloscope_deepseq.qsub.sh
 ```
 
 ### 4) Run full deepseq Alleloscope analysis
 
 ```bash
-qsub analysis/src/alleloscope/run_alleloscope_deepseq.qsub.sh
+qsub analysis/qsub/pipeline/alleloscope/run_alleloscope_deepseq.qsub.sh
 ```
 
 Provenance in this workspace:
@@ -144,9 +144,9 @@ tail -f analysis/qsub_logs/allelo_deepseq.<JOBID>.log
 ### 6) Tissue data organization and smart tissue correction
 
 ```bash
-qsub analysis/src/data_org/build_total_tissue_bam_fragments.qsub.sh
-qsub analysis/src/data_org/run_save_archr_tissue_no_edge.qsub.sh
-qsub analysis/src/data_org/run_prepare_lowseq_alleloscope_tissue_from_existing.qsub.sh
+qsub analysis/qsub/pipeline/data_org/build_total_tissue_bam_fragments.qsub.sh
+qsub analysis/qsub/pipeline/data_org/run_save_archr_tissue_no_edge.qsub.sh
+qsub analysis/qsub/pipeline/data_org/run_prepare_lowseq_alleloscope_tissue_from_existing.qsub.sh
 ```
 
 ## Expected output tree

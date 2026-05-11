@@ -3,7 +3,7 @@
 MONOPOGEN_PATH="/projectnb/paxlab/presh/software/Monopogen"
 REF_FA="/projectnb/paxlab/presh/projects/spatial_atac/Data/hg38_resources/Homo_sapiens_assembly38.fasta"
 MONOPOGEN_ENV="/projectnb/paxlab/presh/env/conda_env/monopgen_env"
-SCRIPT_DIR="/projectnb/paxlab/presh/projects/spatial_atac/analysis/src/monopgen/deepseq/somatic_chr"
+SCRIPT_DIR="/projectnb/paxlab/presh/projects/spatial_atac/analysis/src/variant_calling/monopgen/deepseq/somatic_chr"
 
 cd "$SCRIPT_DIR"
 mkdir -p qsub_logs_deep

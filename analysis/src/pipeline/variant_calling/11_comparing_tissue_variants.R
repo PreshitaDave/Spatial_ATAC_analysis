@@ -6,7 +6,7 @@ suppressPackageStartupMessages({
 project_root <- "/projectnb/paxlab/presh/projects/spatial_atac"
 variant_root <- file.path(project_root, "Data/variant_calling")
 barcode_root <- file.path(project_root, "Data/alleloscope/barcodes")
-out_dir <- Sys.getenv("OUT_DIR", unset = file.path(project_root, "analysis/comparison/tissue_variants"))
+out_dir <- Sys.getenv("OUT_DIR", unset = file.path(project_root, "Data/05_results/variant_calling/tissue_variants/tables"))
 dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 
 log_info <- function(fmt, ...) {

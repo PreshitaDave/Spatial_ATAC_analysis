@@ -1,0 +1,18 @@
+#!/bin/bash -l
+#$ -P paxlab
+#$ -N diagnose_deepseq
+#$ -wd /projectnb/paxlab/presh/projects/spatial_atac
+#$ -pe omp 1
+#$ -l h_rt=01:00:00
+#$ -l mem_per_core=2G
+#$ -j n
+#$ -o /projectnb/paxlab/presh/projects/spatial_atac/analysis/qsub_logs/diagnose_deepseq.$JOB_ID.out
+#$ -e /projectnb/paxlab/presh/projects/spatial_atac/analysis/qsub_logs/diagnose_deepseq.$JOB_ID.err
+
+set -euo pipefail
+
+PROJECT_ROOT="/projectnb/paxlab/presh/projects/spatial_atac"
+
+cd "${PROJECT_ROOT}"
+
+bash analysis/qsub/build_tissue/run_diagnose_deepseq_barcodes.qsub.sh

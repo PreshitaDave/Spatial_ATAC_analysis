@@ -11,6 +11,9 @@
 
 module load R/4.4.0
 
-cd /projectnb/paxlab/presh/projects/spatial_atac/analysis/src
+export TABLE_DIR="${TABLE_DIR:-/projectnb/paxlab/presh/projects/spatial_atac/Data/05_results/variant_calling/somatic_comparison/tables}"
+export PLOT_DIR="${PLOT_DIR:-/projectnb/paxlab/presh/projects/spatial_atac/analysis/plots/comparison/somatic}"
 
-Rscript 9_somatic_snv_comparison.R
+cd /projectnb/paxlab/presh/projects/spatial_atac
+
+Rscript analysis/src/pipeline/somatic/9_somatic_snv_comparison.R

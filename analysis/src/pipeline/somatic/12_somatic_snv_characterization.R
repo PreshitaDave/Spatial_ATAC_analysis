@@ -15,8 +15,13 @@
 #
 # Env vars (all optional)
 #   COMP_DIR     : dir containing script-11 TSV outputs
-#                  [default analysis/comparison/tissue_variants]
-#   OUT_DIR      : output directory  [default analysis/comparison/somatic_char]
+#                  [default Data/05_results/variant_calling/tissue_variants/tables]
+#   OUT_DIR      : table output directory
+#                  [default Data/05_results/variant_calling/somatic_characterization/tables]
+#   PLOT_DIR     : plot output directory
+#                  [default analysis/plots/comparison/somatic_char]
+#   NOTE_DIR     : interpretation notes output directory
+#                  [default Data/05_results/variant_calling/somatic_characterization/notes]
 #   DATASETS     : comma-separated  [default deepseq,lowseq]
 #   CHR_START    : first chromosome number [default 1]
 #   CHR_END      : last  chromosome number [default 22]
@@ -63,18 +68,32 @@ get_env_csv <- function(name, default) {
   trimws(strsplit(raw, ",", fixed = TRUE)[[1]])
 }
 
+get_env_num <- function(name, default, min_value = NULL) {
+  raw <- trimws(Sys.getenv(name, unset = ""))
+  value <- if (!nzchar(raw)) default else suppressWarnings(as.numeric(raw))
+  if (is.na(value)) stop(sprintf("%s must be numeric, got '%s'", name, raw), call. = FALSE)
+  if (!is.null(min_value) && value < min_value)
+    stop(sprintf("%s must be >= %s, got %s", name, format(min_value), format(value)), call. = FALSE)
+  value
+}
+
 # ── configuration ─────────────────────────────────────────────────────────────
 
 project_root <- "/projectnb/paxlab/presh/projects/spatial_atac"
 variant_root <- file.path(project_root, "Data/variant_calling")
 
 comp_dir <- Sys.getenv("COMP_DIR",
-  unset = file.path(project_root, "analysis/comparison/tissue_variants"))
+  unset = file.path(project_root, "Data/05_results/variant_calling/tissue_variants/tables"))
 out_dir  <- Sys.getenv("OUT_DIR",
-  unset = file.path(project_root, "analysis/comparison/somatic_char"))
+  unset = file.path(project_root, "Data/05_results/variant_calling/somatic_characterization/tables"))
+plot_dir <- Sys.getenv("PLOT_DIR",
+  unset = file.path(project_root, "analysis/plots/comparison/somatic_char"))
+note_dir <- Sys.getenv("NOTE_DIR",
+  unset = file.path(project_root, "Data/05_results/variant_calling/somatic_characterization/notes"))
 
 dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
-dir.create(file.path(out_dir, "plots"), recursive = TRUE, showWarnings = FALSE)
+dir.create(plot_dir, recursive = TRUE, showWarnings = FALSE)
+dir.create(note_dir, recursive = TRUE, showWarnings = FALSE)
 
 datasets     <- get_env_csv("DATASETS", c("deepseq", "lowseq"))
 chr_start    <- get_env_int("CHR_START",   1L, min_value = 1L)
@@ -85,10 +104,20 @@ n_workers    <- get_env_int("N_WORKERS",
   min_value = 1L)
 upstream_bp  <- get_env_int("UPSTREAM_BP", 5000L, min_value = 0L)
 
+# Matched practical cutoffs applied identically to deepseq and lowseq.
+min_dep       <- get_env_int("MIN_DEP", 20L, min_value = 1L)
+min_alt_count <- get_env_int("MIN_ALT_COUNT", 5L, min_value = 1L)
+min_alt_cells <- get_env_int("MIN_ALT_CELLS", 3L, min_value = 1L)
+min_vaf       <- get_env_num("MIN_VAF", 0.03, min_value = 0)
+min_svm       <- get_env_num("MIN_SVM", 0.90, min_value = 0)
+min_qs        <- get_env_num("MIN_QS", 0.20, min_value = 0)
+
 chr_numbers  <- seq.int(chr_start, chr_end)
 
-log_info("somatic SNV characterization | out_dir=%s | chrs=chr%d-chr%d | workers=%d",
-         out_dir, chr_start, chr_end, n_workers)
+log_info("somatic SNV characterization | out_dir=%s | plot_dir=%s | note_dir=%s | chrs=chr%d-chr%d | workers=%d",
+         out_dir, plot_dir, note_dir, chr_start, chr_end, n_workers)
+log_info("Matched filters | Dep>=%d alt_count>=%d alt_cells>=%d VAF>=%.3f SVM>=%.2f QS>=%.2f",
+         min_dep, min_alt_count, min_alt_cells, min_vaf, min_svm, min_qs)
 
 ##############################################################################
 # SECTION 1 – Reconstruct variant sets from script-11 outputs
@@ -122,52 +151,54 @@ load_s11_sets <- function(dataset) {
   )
 }
 
+build_sets <- function(deep, low) {
+  list(
+    # Within 488B
+    shared_488B         = intersect(deep$v488, low$v488),
+    deep_only_488B      = setdiff(deep$v488,   low$v488),
+    low_only_488B       = setdiff(low$v488,    deep$v488),
+
+    # Within 489
+    shared_489          = intersect(deep$v489, low$v489),
+    deep_only_489       = setdiff(deep$v489,   low$v489),
+    low_only_489        = setdiff(low$v489,    deep$v489),
+
+    # Tissue identity (across both datasets)
+    tissue_488B_only    = setdiff(union(deep$v488, low$v488),
+                                  union(deep$v489, low$v489)),
+    tissue_489_only     = setdiff(union(deep$v489, low$v489),
+                                  union(deep$v488, low$v488)),
+    tissue_both         = intersect(union(deep$v488, low$v488),
+                                    union(deep$v489, low$v489)),
+
+    # Within-dataset tissue-unique
+    deep_488B_tissue_unique = deep$only488,
+    deep_489_tissue_unique  = deep$only489,
+    low_488B_tissue_unique  = low$only488,
+    low_489_tissue_unique   = low$only489
+  )
+}
+
 log_info("Loading script-11 variant sets …")
 s11 <- setNames(lapply(datasets, load_s11_sets), datasets)
 
-deep <- s11[["deepseq"]]
-low  <- s11[["lowseq"]]
-
-# Cross-dataset comparisons ─────────────────────────────────────────────────
-sets <- list(
-  # Within 488B
-  shared_488B         = intersect(deep$v488, low$v488),
-  deep_only_488B      = setdiff(deep$v488,   low$v488),
-  low_only_488B       = setdiff(low$v488,    deep$v488),
-
-  # Within 489
-  shared_489          = intersect(deep$v489, low$v489),
-  deep_only_489       = setdiff(deep$v489,   low$v489),
-  low_only_489        = setdiff(low$v489,    deep$v489),
-
-  # Tissue identity (across both datasets)
-  tissue_488B_only    = setdiff(union(deep$v488, low$v488),
-                                union(deep$v489, low$v489)),
-  tissue_489_only     = setdiff(union(deep$v489, low$v489),
-                                union(deep$v488, low$v488)),
-  tissue_both         = intersect(union(deep$v488, low$v488),
-                                  union(deep$v489, low$v489)),
-
-  # Within-dataset tissue-unique
-  deep_488B_tissue_unique = deep$only488,
-  deep_489_tissue_unique  = deep$only489,
-  low_488B_tissue_unique  = low$only488,
-  low_489_tissue_unique   = low$only489
-)
+deep_raw <- s11[["deepseq"]]
+low_raw  <- s11[["lowseq"]]
+sets_raw <- build_sets(deep_raw, low_raw)
 
 set_sizes <- data.table(
-  set_name = names(sets),
-  n_variants = vapply(sets, length, integer(1L))
+  set_name = names(sets_raw),
+  n_variants = vapply(sets_raw, length, integer(1L))
 )
-log_info("Variant set sizes:\n%s", paste(capture.output(print(set_sizes)), collapse = "\n"))
-fwrite(set_sizes, file.path(out_dir, "variant_set_sizes.tsv"), sep = "\t")
+log_info("Unfiltered variant set sizes (from script-11):\n%s", paste(capture.output(print(set_sizes)), collapse = "\n"))
+fwrite(set_sizes, file.path(out_dir, "variant_set_sizes_unfiltered.tsv"), sep = "\t")
 
 ##############################################################################
 # SECTION 2 – Build variant attribute table from allSNVs.csv + putativeSNVs.csv
 ##############################################################################
 
-# All unique variant IDs we care about (union of all sets)
-all_ids <- unique(unlist(sets, use.names = FALSE))
+# All unique variant IDs we care about (union of unfiltered sets)
+all_ids <- unique(unlist(sets_raw, use.names = FALSE))
 log_info("Total unique variants to characterise: %s", format(length(all_ids), big.mark = ","))
 
 # Parse variant IDs → data.table
@@ -228,14 +259,67 @@ load_attrs_for_dataset <- function(dataset) {
   all_dt
 }
 
+apply_matched_filters <- function(dt, dataset_label) {
+  if (!nrow(dt)) return(dt)
+
+  if (!("VAF" %in% names(dt)) && all(c("dep_alt_new", "Dep") %in% names(dt))) {
+    dt[, VAF := dep_alt_new / pmax(Dep, 1L)]
+  }
+
+  keep <- rep(TRUE, nrow(dt))
+
+  if ("Dep" %in% names(dt)) keep <- keep & !is.na(dt$Dep) & dt$Dep >= min_dep
+  if ("dep_alt_new" %in% names(dt)) keep <- keep & !is.na(dt$dep_alt_new) & dt$dep_alt_new >= min_alt_count
+  if ("cell_alt" %in% names(dt)) keep <- keep & !is.na(dt$cell_alt) & dt$cell_alt >= min_alt_cells
+  if ("VAF" %in% names(dt)) keep <- keep & !is.na(dt$VAF) & dt$VAF >= min_vaf
+  if ("SVM_pos_score" %in% names(dt)) keep <- keep & !is.na(dt$SVM_pos_score) & dt$SVM_pos_score >= min_svm
+  if ("QS" %in% names(dt)) keep <- keep & !is.na(dt$QS) & dt$QS >= min_qs
+
+  out <- dt[keep]
+  log_info("Applied matched filters to %s: %s -> %s rows (%.1f%% kept)",
+           dataset_label,
+           format(nrow(dt), big.mark = ","),
+           format(nrow(out), big.mark = ","),
+           100 * nrow(out) / max(1, nrow(dt)))
+  out
+}
+
 # Load attributes for each dataset, then merge with our id_dt
 attr_list <- lapply(datasets, function(ds) {
   a <- load_attrs_for_dataset(ds)
   # Keep only variants we care about
   a <- a[id_dt[, .(chr, pos, ref, alt, variant_id)], on = c("chr", "pos", "ref", "alt"), nomatch = 0L]
+  a <- apply_matched_filters(a, ds)
   a
 })
 names(attr_list) <- datasets
+
+# Rebuild per-tissue sets using variants that pass the same filters in each dataset.
+deep_pass <- unique(attr_list[["deepseq"]]$variant_id)
+low_pass  <- unique(attr_list[["lowseq"]]$variant_id)
+
+deep <- list(
+  v488    = intersect(deep_raw$v488, deep_pass),
+  v489    = intersect(deep_raw$v489, deep_pass),
+  same    = intersect(deep_raw$same, deep_pass),
+  only488 = intersect(deep_raw$only488, deep_pass),
+  only489 = intersect(deep_raw$only489, deep_pass)
+)
+low <- list(
+  v488    = intersect(low_raw$v488, low_pass),
+  v489    = intersect(low_raw$v489, low_pass),
+  same    = intersect(low_raw$same, low_pass),
+  only488 = intersect(low_raw$only488, low_pass),
+  only489 = intersect(low_raw$only489, low_pass)
+)
+sets <- build_sets(deep, low)
+
+set_sizes <- data.table(
+  set_name = names(sets),
+  n_variants = vapply(sets, length, integer(1L))
+)
+log_info("Filtered variant set sizes:\n%s", paste(capture.output(print(set_sizes)), collapse = "\n"))
+fwrite(set_sizes, file.path(out_dir, "variant_set_sizes.tsv"), sep = "\t")
 
 # Combine, keeping one row per variant × dataset (averaged if duplicates exist)
 attr_all <- rbindlist(attr_list, fill = TRUE)
@@ -440,7 +524,8 @@ gene_annot[, cancer_categories := {
 log_info("Building master annotated variant table …")
 
 # Assign each variant to the sets it belongs to
-variant_membership <- data.table(variant_id = all_ids)
+all_ids_filtered <- unique(unlist(sets, use.names = FALSE))
+variant_membership <- data.table(variant_id = all_ids_filtered)
 for (sname in names(sets)) {
   variant_membership[, (sname) := variant_id %in% sets[[sname]]]
 }
@@ -457,7 +542,7 @@ variant_membership[, cross_category := {
 
 master <- merge(id_dt[, .(variant_id, chr, pos, ref, alt)],
                 gene_annot,  by = "variant_id", all.x = TRUE)
-master <- merge(master, variant_membership, by = "variant_id", all.x = TRUE)
+master <- merge(master, variant_membership, by = "variant_id", all = FALSE)
 
 # Pull in deepseq attrs (preferred) then lowseq for missing
 attrs_deep <- attr_list[["deepseq"]][, .(
@@ -626,6 +711,87 @@ cat_pal <- c(
   tissue_both      = "#636363"
 )
 
+target_cats <- c("shared_488B", "deep_only_488B", "low_only_488B",
+                 "shared_489",  "deep_only_489",  "low_only_489")
+
+save_empty_plot <- function(path, title, message, width, height) {
+  p_empty <- ggplot() +
+    annotate("text", x = 0.5, y = 0.6, label = title,
+             size = 6, fontface = "bold") +
+    annotate("text", x = 0.5, y = 0.45, label = message,
+             size = 4.2, colour = "grey30") +
+    xlim(0, 1) + ylim(0, 1) +
+    theme_void()
+  ggsave(path, p_empty, width = width, height = height, dpi = 150, bg = "white")
+}
+
+draw_two_set_venn <- function(tissue, deep_only, low_only, shared, out_file) {
+  total_deep <- deep_only + shared
+  total_low  <- low_only + shared
+  theta <- seq(0, 2 * pi, length.out = 240L)
+  radius <- 1.8
+
+  circle_dt <- rbindlist(list(
+    data.table(set = "deepseq", x = -1 + radius * cos(theta), y = radius * sin(theta)),
+    data.table(set = "lowseq",  x =  1 + radius * cos(theta), y = radius * sin(theta))
+  ))
+
+  lbl <- data.table(
+    x = c(-1.9, 0, 1.9),
+    y = c(0, 0, 0),
+    txt = c(sprintf("Deep only\n%d", deep_only),
+            sprintf("Shared\n%d", shared),
+            sprintf("Low only\n%d", low_only))
+  )
+
+  p <- ggplot() +
+    geom_polygon(data = circle_dt,
+                 aes(x = x, y = y, group = set, fill = set),
+                 alpha = 0.35, colour = "grey30", linewidth = 0.6) +
+    geom_text(data = lbl, aes(x = x, y = y, label = txt), size = 4.5, fontface = "bold") +
+    annotate("text", x = -1, y = 2.25, label = sprintf("Deep total: %d", total_deep), size = 3.8) +
+    annotate("text", x = 1,  y = 2.25, label = sprintf("Low total: %d", total_low),  size = 3.8) +
+    scale_fill_manual(values = c(deepseq = "#4393c3", lowseq = "#d6604d"), name = NULL) +
+    coord_equal(xlim = c(-3.3, 3.3), ylim = c(-2.4, 2.7), clip = "off") +
+    labs(title = sprintf("Deepseq vs Lowseq Variant Overlap (%s)", tissue)) +
+    theme_void() +
+    theme(
+      legend.position = "bottom",
+      plot.title = element_text(hjust = 0.5, face = "bold", size = 13)
+    )
+
+  ggsave(out_file, p, width = 8, height = 6, dpi = 150, bg = "white")
+}
+
+## 9.0  Venn diagrams (deep-only vs shared vs low-only), by tissue ───────────
+set_sizes_file <- file.path(out_dir, "variant_set_sizes.tsv")
+set_sizes_for_venn <- if (file.exists(set_sizes_file)) {
+  fread(set_sizes_file)
+} else {
+  data.table(set_name = names(sets), n_variants = vapply(sets, length, integer(1L)))
+}
+
+get_set_size <- function(nm) {
+  v <- set_sizes_for_venn[set_name == nm, n_variants]
+  if (length(v) && !is.na(v[1])) as.integer(v[1]) else as.integer(length(sets[[nm]]))
+}
+
+draw_two_set_venn(
+  tissue = "488B",
+  deep_only = get_set_size("deep_only_488B"),
+  low_only  = get_set_size("low_only_488B"),
+  shared    = get_set_size("shared_488B"),
+  out_file  = file.path(plot_dir, "venn_deep_low_488B.png")
+)
+
+draw_two_set_venn(
+  tissue = "489",
+  deep_only = get_set_size("deep_only_489"),
+  low_only  = get_set_size("low_only_489"),
+  shared    = get_set_size("shared_489"),
+  out_file  = file.path(plot_dir, "venn_deep_low_489.png")
+)
+
 ## 9.1  VAF distribution: deepseq vs lowseq, by cross-category ──────────────
 plot_vaf_dt <- melt(
   master[cross_category %in% names(cat_pal)],
@@ -637,8 +803,6 @@ plot_vaf_dt <- melt(
 plot_vaf_dt[, seq_type := fifelse(seq_type == "VAF_deep", "deepseq", "lowseq")]
 
 # Focus on cross-dataset categories for comparison
-target_cats <- c("shared_488B", "deep_only_488B", "low_only_488B",
-                 "shared_489",  "deep_only_489",  "low_only_489")
 plot_vaf_dt[, plot_category := vapply(cross_category, pick_plot_category,
                                       character(1L), targets = target_cats)]
 plot_vaf_sub <- plot_vaf_dt[cross_category %in%
@@ -653,19 +817,27 @@ if (!nrow(plot_vaf_sub)) {
 
 if (nrow(plot_vaf_sub)) {
   plot_vaf_sub[, facet_category := if ("plot_category" %in% names(plot_vaf_sub)) plot_category else cross_category]
-  p_vaf <- ggplot(plot_vaf_sub, aes(x = VAF, fill = facet_category)) +
+  plot_vaf_sub[, VAF_plot := pmin(pmax(VAF, 0), 1)]
+  p_vaf <- ggplot(plot_vaf_sub, aes(x = VAF_plot, fill = facet_category)) +
     geom_histogram(bins = 60L, alpha = 0.75, position = "identity") +
     facet_grid(facet_category ~ seq_type, scales = "free_y") +
-    scale_fill_manual(values = cat_pal, guide = "none") +
-    xlim(0, 1) +
+    scale_fill_manual(values = cat_pal, breaks = target_cats, drop = FALSE, name = "Category") +
+    coord_cartesian(xlim = c(0, 1)) +
     labs(title = "VAF distribution by dataset-category",
          x = "Variant Allele Frequency", y = "Count") +
     theme_pub()
 
-  ggsave(file.path(out_dir, "plots", "vaf_by_category.png"),
-         p_vaf, width = 10, height = 12, dpi = 150)
+  ggsave(file.path(plot_dir, "vaf_by_category.png"),
+         p_vaf, width = 10, height = 12, dpi = 150, bg = "white")
 } else {
   log_info("Skipping vaf_by_category plot: no rows after category filtering")
+  save_empty_plot(
+    file.path(plot_dir, "vaf_by_category.png"),
+    "VAF distribution by dataset-category",
+    "No VAF values available after filtering",
+    width = 10,
+    height = 12
+  )
 }
 
 ## 9.2  Depth distribution ────────────────────────────────────────────────────
@@ -691,15 +863,22 @@ if (nrow(dep_sub)) {
   p_dep <- ggplot(dep_sub, aes(x = pmin(Depth, 500L), fill = facet_category)) +
     geom_histogram(bins = 50L, alpha = 0.75, position = "identity") +
     facet_grid(facet_category ~ seq_type, scales = "free_y") +
-    scale_fill_manual(values = cat_pal, guide = "none") +
+    scale_fill_manual(values = cat_pal, breaks = target_cats, drop = FALSE, name = "Category") +
     labs(title = "Coverage depth (capped 500×) by dataset-category",
          x = "Depth", y = "Count") +
     theme_pub()
 
-  ggsave(file.path(out_dir, "plots", "depth_by_category.png"),
-         p_dep, width = 10, height = 12, dpi = 150)
+  ggsave(file.path(plot_dir, "depth_by_category.png"),
+         p_dep, width = 10, height = 12, dpi = 150, bg = "white")
 } else {
   log_info("Skipping depth_by_category plot: no rows after category filtering")
+  save_empty_plot(
+    file.path(plot_dir, "depth_by_category.png"),
+    "Coverage depth by dataset-category",
+    "No depth values available after filtering",
+    width = 10,
+    height = 12
+  )
 }
 
 ## 9.3  Ti/Tv bar chart ───────────────────────────────────────────────────────
@@ -722,7 +901,7 @@ if (nrow(titv_dt)) {
          x = NULL, y = "Percentage (%)") +
     theme_pub()
 
-  ggsave(file.path(out_dir, "plots", "titv_by_category.png"),
+  ggsave(file.path(plot_dir, "titv_by_category.png"),
          p_titv, width = 9, height = 6, dpi = 150)
 } else {
   log_info("Skipping titv_by_category plot: ti_tv unavailable")
@@ -755,19 +934,28 @@ if (!nrow(qs_dt)) {
 
 if (nrow(qs_dt)) {
   qs_dt[, facet_category := if ("plot_category" %in% names(qs_dt)) plot_category else cross_category]
+  qs_dt[, QS_plot := pmin(pmax(QS, 0), 1)]
   p_qs <- ggplot(qs_dt, aes(x = QS, fill = facet_category)) +
-    geom_histogram(bins = 50L, alpha = 0.75, position = "identity") +
+    geom_histogram(data = qs_dt, aes(x = QS_plot, fill = facet_category),
+                   bins = 50L, alpha = 0.75, position = "identity") +
     facet_grid(facet_category ~ seq_type, scales = "free_y") +
-    scale_fill_manual(values = cat_pal, guide = "none") +
-    xlim(0, 1) +
+    scale_fill_manual(values = cat_pal, breaks = target_cats, drop = FALSE, name = "Category") +
+    coord_cartesian(xlim = c(0, 1)) +
     labs(title = "Quality score (QS) distribution by category",
          x = "QS", y = "Count") +
     theme_pub()
 
-  ggsave(file.path(out_dir, "plots", "qs_by_category.png"),
-         p_qs, width = 10, height = 12, dpi = 150)
+  ggsave(file.path(plot_dir, "qs_by_category.png"),
+         p_qs, width = 10, height = 12, dpi = 150, bg = "white")
 } else {
   log_info("Skipping qs_by_category plot: no QS values available")
+  save_empty_plot(
+    file.path(plot_dir, "qs_by_category.png"),
+    "Quality score (QS) distribution",
+    "No QS values available after filtering",
+    width = 10,
+    height = 12
+  )
 }
 
 ## 9.5  Top cancer genes per tissue ────────────────────────────────────────────
@@ -787,7 +975,7 @@ plot_top_genes <- function(set_name, label, top_n = 20L) {
     labs(title = sprintf("Top cancer-gene variants — %s", label),
          x = NULL, y = "Variants") +
     theme_pub()
-  fname <- file.path(out_dir, "plots", sprintf("top_cancer_genes_%s.png", set_name))
+  fname <- file.path(plot_dir, sprintf("top_cancer_genes_%s.png", set_name))
   ggsave(fname, p, width = 7, height = 6, dpi = 150)
   invisible(p)
 }
@@ -817,7 +1005,7 @@ for (tissue in c("488B", "489")) {
     labs(title = sprintf("VAF deepseq vs lowseq — shared %s variants", tissue),
          x = "VAF (deepseq)", y = "VAF (lowseq)") +
     theme_pub()
-  ggsave(file.path(out_dir, "plots", sprintf("vaf_scatter_shared_%s.png", tissue)),
+  ggsave(file.path(plot_dir, sprintf("vaf_scatter_shared_%s.png", tissue)),
          p_sc, width = 7, height = 6, dpi = 150)
 }
 
@@ -844,8 +1032,8 @@ p_tissue_cg <- ggplot(gene_tissue_ct2, aes(x = symbol, y = N, fill = tissue_cat)
        x = NULL, y = "Variant count") +
   theme_pub()
 
-ggsave(file.path(out_dir, "plots", "cancer_genes_by_tissue.png"),
-       p_tissue_cg, width = 9, height = 9, dpi = 150)
+ggsave(file.path(plot_dir, "cancer_genes_by_tissue.png"),
+  p_tissue_cg, width = 9, height = 9, dpi = 150, bg = "white")
 
 ## 9.8  SVM score comparison (deep-only vs shared vs low-only per tissue) ─────
 svm_dt <- melt(
@@ -857,19 +1045,33 @@ svm_dt <- melt(
   variable.name = "seq_type", value.name = "SVM"
 )[!is.na(SVM)]
 svm_dt[, seq_type := fifelse(grepl("deep", seq_type), "deepseq", "lowseq")]
+svm_dt[, plot_category := vapply(cross_category, pick_plot_category,
+                                 character(1L), targets = target_cats)]
+svm_dt <- svm_dt[!is.na(plot_category)]
 
-p_svm <- ggplot(svm_dt, aes(x = cross_category, y = SVM, fill = cross_category)) +
-  geom_violin(trim = TRUE, scale = "width", alpha = 0.7) +
-  geom_boxplot(width = 0.12, outlier.size = 0.5, fill = "white", alpha = 0.6) +
-  facet_wrap(~ seq_type) +
-  scale_fill_manual(values = cat_pal, guide = "none") +
-  coord_flip() +
-  labs(title = "SVM score by variant category",
-       x = NULL, y = "SVM positive score") +
-  theme_pub()
+if (nrow(svm_dt)) {
+  p_svm <- ggplot(svm_dt, aes(x = plot_category, y = SVM, fill = plot_category)) +
+    geom_violin(trim = TRUE, scale = "width", alpha = 0.7) +
+    geom_boxplot(width = 0.12, outlier.size = 0.5, fill = "white", alpha = 0.6) +
+    facet_wrap(~ seq_type) +
+    scale_fill_manual(values = cat_pal, breaks = target_cats, drop = FALSE, name = "Category") +
+    coord_flip() +
+    labs(title = "SVM score by variant category",
+         x = NULL, y = "SVM positive score") +
+    theme_pub()
 
-ggsave(file.path(out_dir, "plots", "svm_score_by_category.png"),
-       p_svm, width = 11, height = 7, dpi = 150)
+  ggsave(file.path(plot_dir, "svm_score_by_category.png"),
+         p_svm, width = 11, height = 7, dpi = 150, bg = "white")
+} else {
+  log_info("Skipping svm_score_by_category plot: no SVM values available")
+  save_empty_plot(
+    file.path(plot_dir, "svm_score_by_category.png"),
+    "SVM score by variant category",
+    "No SVM values available after filtering",
+    width = 11,
+    height = 7
+  )
+}
 
 ##############################################################################
 # SECTION 10 – Final summary and interpretation notes
@@ -930,11 +1132,46 @@ interp_summary <- function(set_summary_dt, sets_list, master_dt) {
     lines <- c(lines, "     These may represent different clonal compositions in each tissue slice.")
   }
 
+  lines <- c(lines, "\n--- TNBC / breast-cancer gene highlights ---")
+  for (sname in c("shared_488B", "deep_only_488B", "low_only_488B",
+                  "shared_489", "deep_only_489", "low_only_489",
+                  "tissue_488B_only", "tissue_489_only")) {
+    row <- set_summary_dt[set_name == sname]
+    if (nrow(row)) {
+      lines <- c(lines, sprintf(
+        "  %s: %d / %d cancer-gene variants (%.2f%%)",
+        sname,
+        row$n_cancer_gene,
+        row$n,
+        row$pct_cancer_gene
+      ))
+    }
+  }
+
+  tnbc488 <- sum(master_dt$variant_id %in% sets_list$tissue_488B_only & master_dt$is_cancer_gene, na.rm = TRUE)
+  tnbc489 <- sum(master_dt$variant_id %in% sets_list$tissue_489_only & master_dt$is_cancer_gene, na.rm = TRUE)
+  lines <- c(lines, sprintf("  Tissue-specific TNBC genes: 488B=%d | 489=%d", tnbc488, tnbc489))
+
   paste(lines, collapse = "\n")
 }
 
-interp <- interp_summary(set_summary, sets, master)
+interp <- tryCatch(
+  interp_summary(set_summary, sets, master),
+  error = function(e) {
+    msg <- sprintf("Interpretation summary failed: %s", conditionMessage(e))
+    log_info("%s", msg)
+    paste(
+      "=== SOMATIC SNV CHARACTERIZATION SUMMARY ===",
+      "",
+      msg,
+      "Check per_set_summary.tsv and master_annotated_variants.tsv for details.",
+      sep = "\n"
+    )
+  }
+)
 cat(interp, "\n")
-writeLines(interp, file.path(out_dir, "interpretation_notes.txt"))
+writeLines(interp, file.path(note_dir, "interpretation_notes.txt"))
+log_info("Wrote interpretation notes: %s",
+         file.path(note_dir, "interpretation_notes.txt"))
 
 log_info("Done. All outputs in: %s", out_dir)

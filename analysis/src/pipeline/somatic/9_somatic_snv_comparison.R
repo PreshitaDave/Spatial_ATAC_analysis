@@ -11,11 +11,20 @@ n_cores <- as.integer(Sys.getenv("NSLOTS", "6"))
 cat("Using", n_cores, "cores\n")
 
 # --- Paths ---
+project_root <- "/projectnb/paxlab/presh/projects/spatial_atac"
 base_dir <- "/projectnb/paxlab/presh/projects/spatial_atac/Data/variant_calling"
 deep_somatic <- file.path(base_dir, "deepseq", "somatic")
 low_somatic  <- file.path(base_dir, "lowseq", "somatic")
-out_dir <- "/projectnb/paxlab/presh/projects/spatial_atac/analysis/comparison/somatic"
-dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+table_dir <- Sys.getenv(
+  "TABLE_DIR",
+  unset = file.path(project_root, "Data/05_results/variant_calling/somatic_comparison/tables")
+)
+plot_dir <- Sys.getenv(
+  "PLOT_DIR",
+  unset = file.path(project_root, "analysis/plots/comparison/somatic")
+)
+dir.create(table_dir, recursive = TRUE, showWarnings = FALSE)
+dir.create(plot_dir, recursive = TRUE, showWarnings = FALSE)
 
 chromosomes <- paste0("chr", 1:22)
 
@@ -91,7 +100,7 @@ chr_summary$jaccard_filt <- with(chr_summary, overlap_filtered / (deep_filtered 
 
 cat(sprintf("%-6s %8s %8s %8s %8s %8s %8s %8s\n",
             "CHR", "D_raw", "L_raw", "D_filt", "L_filt", "Ovlp_r", "Ovlp_f", "Jacc_f"))
-for (i in 1:nrow(chr_summary)) {
+for (i in seq_len(nrow(chr_summary))) {
   cat(sprintf("%-6s %8d %8d %8d %8d %8d %8d %8.3f\n",
               chr_summary$chr[i], chr_summary$deep_raw[i], chr_summary$low_raw[i],
               chr_summary$deep_filtered[i], chr_summary$low_filtered[i],
@@ -100,7 +109,7 @@ for (i in 1:nrow(chr_summary)) {
 }
 
 # Save summary
-write.csv(chr_summary, file.path(out_dir, "chr_summary.csv"), row.names = FALSE)
+write.csv(chr_summary, file.path(table_dir, "chr_summary.csv"), row.names = FALSE)
 
 # --- Step 4: Combined data for filtered SNVs ---
 deep_all <- do.call(rbind, deep_filt)
@@ -118,7 +127,7 @@ cat("Jaccard index:", round(length(overlap_all) / (nrow(deep_all) + nrow(low_all
 # --- Step 5: Generate plots ---
 cat("\n--- Generating plots ---\n")
 
-pdf(file.path(out_dir, "somatic_comparison_plots.pdf"), width = 14, height = 10)
+pdf(file.path(plot_dir, "somatic_comparison_plots.pdf"), width = 14, height = 10)
 
 # =============================================
 # PLOT 1: Per-chromosome SNV counts (raw vs filtered)
@@ -483,11 +492,11 @@ if (length(overlap_all) > 0) {
 }
 
 dev.off()
-cat("\nPlots saved to:", file.path(out_dir, "somatic_comparison_plots.pdf"), "\n")
+cat("\nPlots saved to:", file.path(plot_dir, "somatic_comparison_plots.pdf"), "\n")
 
 # --- Save summary data ---
-write.csv(deep_all, file.path(out_dir, "deepseq_filtered_somatic_all.csv"), row.names = FALSE)
-write.csv(low_all, file.path(out_dir, "lowseq_filtered_somatic_all.csv"), row.names = FALSE)
+write.csv(deep_all, file.path(table_dir, "deepseq_filtered_somatic_all.csv"), row.names = FALSE)
+write.csv(low_all, file.path(table_dir, "lowseq_filtered_somatic_all.csv"), row.names = FALSE)
 
 cat("\nEnd time:", format(Sys.time()), "\n")
 cat("=== Done ===\n")

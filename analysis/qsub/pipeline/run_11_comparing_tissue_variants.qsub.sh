@@ -22,6 +22,6 @@ export DATASETS="${DATASETS:-deepseq,lowseq}"
 export CHR_START="${CHR_START:-1}"
 export CHR_END="${CHR_END:-22}"
 export N_WORKERS="${N_WORKERS:-$NSLOTS}"
-export OUT_DIR="${OUT_DIR:-analysis/comparison/tissue_variants}"
+export OUT_DIR="${OUT_DIR:-/projectnb/paxlab/presh/projects/spatial_atac/Data/05_results/variant_calling/tissue_variants/tables}"
 
-Rscript analysis/src/11_comparing_tissue_variants.R
+Rscript analysis/src/pipeline/variant_calling/11_comparing_tissue_variants.R

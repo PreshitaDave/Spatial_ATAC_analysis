@@ -9,12 +9,14 @@ log_msg <- function(tag, msg) {
 
 project_root <- Sys.getenv("PROJECT_ROOT", "/projectnb/paxlab/presh/projects/spatial_atac")
 spatial_file <- file.path(project_root, "Data", "tissue_positions_list.csv")
-out_barcode_dir <- file.path(project_root, "Data", "tissue_barcodes")
+out_barcode_dir <- file.path(project_root, "Data", "01_inputs", "barcodes", "tissue_barcodes")
 out_plot_dir <- file.path(project_root, "analysis", "plots", "variant_qc", "edge_effect_nfrags")
 
 fragment_files <- list(
   deepseq = file.path(project_root, "Data", "deepseq.fragments.sort.filtered.bed.gz"),
-  lowseq = file.path(project_root, "Data", "lowseq.fragments.sort.filtered.bed")
+  lowseq = file.path(project_root, "Data", "lowseq.fragments.sort.filtered.bed"),
+  deepseq_489 = file.path(project_root, "Data", "deepseq_489.fragments.sort.filtered.bed.gz"),
+  lowseq_489 = file.path(project_root, "Data", "lowseq_489.fragments.sort.filtered.bed.gz")
 )
 
 # Parameters (override via environment variables when needed)
@@ -181,8 +183,17 @@ plot_before_after <- function(dt_tissue, dataset, tissue_name, threshold, out_di
   before_file <- file.path(out_dir, sprintf("%s_%s_before_edge_filter.png", dataset, tissue_name))
   after_file <- file.path(out_dir, sprintf("%s_%s_after_edge_filter.png", dataset, tissue_name))
 
-  p_before <- ggplot(dt_tissue, aes(x = x_spatial, y = y_spatial)) +
-    geom_point(aes(color = nFrags), size = 0.4, alpha = 0.9) +
+  # Before plot: show ALL cells, color by nFrags (gray for missing fragments)
+  cells_with_frags <- dt_tissue[!is.na(nFrags)]
+  cells_without_frags <- dt_tissue[is.na(nFrags)]
+  
+  p_before <- ggplot(cells_with_frags, aes(x = x_spatial, y = y_spatial, color = nFrags)) +
+    geom_point(size = 0.4, alpha = 0.9) +
+    # Add cells without fragments in light gray
+    {if (nrow(cells_without_frags) > 0) 
+      geom_point(data = cells_without_frags, color = "lightgray", size = 0.3, alpha = 0.5)
+    } +
+    # Overlay edge-effect cells with black circles
     geom_point(
       data = dt_tissue[is_edge_effect == TRUE],
       shape = 1,
@@ -190,12 +201,13 @@ plot_before_after <- function(dt_tissue, dataset, tissue_name, threshold, out_di
       size = 0.9,
       stroke = 0.35
     ) +
-    scale_color_viridis_c(option = "C", trans = "log10") +
+    scale_color_viridis_c(option = "C", trans = "log10", na.value = "lightgray") +
     coord_fixed() +
     theme_classic(base_size = 11) +
     labs(
-      title = sprintf("%s %s: Before edge filtering", dataset, tissue_name),
-      subtitle = sprintf("Edge-effect: edge rows + nFrags >= %.0f", threshold),
+      title = sprintf("%s %s: Before edge filtering (all cells from spatial)", dataset, tissue_name),
+      subtitle = sprintf("All %d cells shown; edge rows + nFrags >= %.0f marked with circles", 
+                         nrow(dt_tissue), threshold),
       x = "x_spatial",
       y = "y_spatial",
       color = "nFrags"
@@ -222,21 +234,25 @@ plot_before_after <- function(dt_tissue, dataset, tissue_name, threshold, out_di
 process_combo <- function(dataset, tissue_name, nfrags_dt) {
   log_msg("step", sprintf("Processing %s %s", dataset, tissue_name))
 
+  # Include ALL cells from spatial file, even those without fragments
   dt <- merge(
     spatial_dt[tissue == tissue_name, .(barcode, tissue, array_row, array_col, x_spatial, y_spatial)],
     nfrags_dt,
     by = "barcode",
-    all = FALSE
+    all.x = TRUE
   )
 
-  if (!nrow(dt)) {
-    log_msg("warn", sprintf("No overlapping barcodes for %s %s", dataset, tissue_name))
+  # Filter to cells with fragment data for threshold computation only
+  dt_with_frags <- dt[!is.na(nFrags)]
+  
+  if (!nrow(dt_with_frags)) {
+    log_msg("warn", sprintf("No cells with fragment data for %s %s", dataset, tissue_name))
     return(data.table(
       dataset = dataset,
       tissue = tissue_name,
-      total_cells = 0L,
+      total_cells = nrow(dt),
       edge_cells = 0L,
-      kept_cells = 0L,
+      kept_cells = nrow(dt),
       edge_n_rows = NA_integer_,
       edge_rows_min = NA_integer_,
       edge_rows_max = NA_integer_,
@@ -250,7 +266,7 @@ process_combo <- function(dataset, tissue_name, nfrags_dt) {
     ))
   }
 
-  th <- compute_edge_threshold(copy(dt))
+  th <- compute_edge_threshold(copy(dt_with_frags))
   edge_rows <- unique(c(th$lower_edge_rows, th$upper_edge_rows))
 
   dt[, is_edge_row := array_row %in% edge_rows]
@@ -299,7 +315,9 @@ process_combo <- function(dataset, tissue_name, nfrags_dt) {
 # Build dataset-level nFrags tables from fragments
 # -----------------------------------------------------------------------------
 deepseq_nfrags <- build_nfrags_from_fragments("deepseq", fragment_files$deepseq)
+deepseq_489_nfrags <- build_nfrags_from_fragments("deepseq_489", fragment_files$deepseq_489)
 lowseq_nfrags <- build_nfrags_from_fragments("lowseq", fragment_files$lowseq)
+lowseq_489_nfrags <- build_nfrags_from_fragments("lowseq_489", fragment_files$lowseq_489)
 
 # -----------------------------------------------------------------------------
 # Section 1: deepseq tissue 488B
@@ -309,7 +327,7 @@ s1 <- process_combo("deepseq", "488B", deepseq_nfrags)
 # -----------------------------------------------------------------------------
 # Section 2: deepseq tissue 489
 # -----------------------------------------------------------------------------
-s2 <- process_combo("deepseq", "489", deepseq_nfrags)
+s2 <- process_combo("deepseq", "489", deepseq_489_nfrags)
 
 # -----------------------------------------------------------------------------
 # Section 3: lowseq tissue 488B
@@ -319,7 +337,7 @@ s3 <- process_combo("lowseq", "488B", lowseq_nfrags)
 # -----------------------------------------------------------------------------
 # Section 4: lowseq tissue 489
 # -----------------------------------------------------------------------------
-s4 <- process_combo("lowseq", "489", lowseq_nfrags)
+s4 <- process_combo("lowseq", "489", lowseq_489_nfrags)
 
 summary_dt <- rbindlist(list(s1, s2, s3, s4), fill = TRUE)
 summary_file <- file.path(out_barcode_dir, "edge_effect_nfrags_thresholds.tsv")

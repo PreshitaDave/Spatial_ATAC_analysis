@@ -11,6 +11,9 @@
 
 module load R/4.4.0
 
-cd /projectnb/paxlab/presh/projects/spatial_atac/analysis/src
+export RESULT_DIR="${RESULT_DIR:-/projectnb/paxlab/presh/projects/spatial_atac/Data/05_results/variant_calling/somatic_comparison/tables}"
+export PLOT_DIR="${PLOT_DIR:-/projectnb/paxlab/presh/projects/spatial_atac/analysis/plots/comparison/somatic}"
 
-Rscript 10_archr_variant_plotting.R
+cd /projectnb/paxlab/presh/projects/spatial_atac
+
+Rscript analysis/src/pipeline/archr/10_archr_variant_plotting_deepseq.R

@@ -18,8 +18,16 @@ set.seed(1)
 addArchRGenome("hg38")
 addArchRThreads(threads = as.integer(Sys.getenv("NSLOTS", "2")))
 
-out_dir <- "/projectnb/paxlab/presh/projects/spatial_atac/Data/variant_calling/analysis/somatic"
-dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+result_dir <- Sys.getenv(
+  "RESULT_DIR",
+  unset = "/projectnb/paxlab/presh/projects/spatial_atac/Data/05_results/variant_calling/somatic_comparison/tables"
+)
+plot_dir <- Sys.getenv(
+  "PLOT_DIR",
+  unset = "/projectnb/paxlab/presh/projects/spatial_atac/analysis/plots/comparison/somatic"
+)
+dir.create(result_dir, recursive = TRUE, showWarnings = FALSE)
+dir.create(plot_dir, recursive = TRUE, showWarnings = FALSE)
 
 # ---- Load ArchR project ----
 cat("Loading saved ArchR project...\n")
@@ -119,7 +127,7 @@ big_snv_matrix <- do.call(rbind, unname(all_mats_list))
 # subset to deep_somatic snvs 
 big_snv_matrix_sub <- big_snv_matrix[deep_somatic$snv_id, ]
 
-saveRDS(big_snv_matrix_sub, file.path(out_dir, "all_chr_snv_mat.rds"))
+saveRDS(big_snv_matrix_sub, file.path(result_dir, "all_chr_snv_mat.rds"))
 
 
 # ---- Encode SNV-cell matrices ----
@@ -140,7 +148,7 @@ encode_chrs <- function(mat) {
 cell_cols <- big_snv_matrix_sub[, 19:ncol(big_snv_matrix_sub), drop = FALSE]
 big_snv_matrix_encode <- encode_chrs(cell_cols)
 
-saveRDS(big_snv_matrix_encode, file.path(out_dir, "all_chr_snv_mat_encode.rds"))
+saveRDS(big_snv_matrix_encode, file.path(result_dir, "all_chr_snv_mat_encode.rds"))
 
 # SANITY CHECK - 
 
@@ -190,7 +198,7 @@ min_counts_per_celltype <- 3
 p_adjust_method <- "BH"
 
 
-big_snv_matrix_encode <- readRDS( file.path(out_dir, "all_chr_snv_mat_encode.rds"))
+big_snv_matrix_encode <- readRDS(file.path(result_dir, "all_chr_snv_mat_encode.rds"))
 
 # Basic checks
 if (!exists("big_snv_matrix_encode")) stop("big_snv_matrix_encode not found.")
@@ -308,7 +316,7 @@ if (is.null(res_df) || nrow(res_df) == 0) {
 message("Tested SNVs: ", length(results_list))
 message("Significant hits (pval_adj < 0.05): ", sum(res_df$pval_adj < 0.05, na.rm = TRUE))
 
-saveRDS(res_df, file.path(out_dir, 'deepseq_snv_fisher_test.rds'))
+saveRDS(res_df, file.path(result_dir, "deepseq_snv_fisher_test.rds"))
 
 # Result columns
 # 
@@ -337,7 +345,7 @@ if (has_spatial) cat("Spatial coordinates available.\n") else cat("WARNING: No s
 embedding_names <- names(proj@embeddings)
 cat("Available embeddings:", paste(embedding_names, collapse = ", "), "\n")
 
-pdf(file.path(out_dir, "archr_variant_overlay.pdf"), width = 14, height = 10)
+pdf(file.path(plot_dir, "archr_variant_overlay.pdf"), width = 14, height = 10)
 
 
 
@@ -365,7 +373,7 @@ if (is.null(archr_cells) || length(archr_cells) == 0) stop("No ArchR cell barcod
 # -------------------------
 
 # At this point big_snv_matrix_encode should exist
-big_snv_matrix_encode <- readRDS( file.path(out_dir, "all_chr_snv_mat_encode.rds"))
+big_snv_matrix_encode <- readRDS(file.path(result_dir, "all_chr_snv_mat_encode.rds"))
 
 if (!exists("big_snv_matrix_encode")) stop("big_snv_matrix_encode not available after attempted build.")
 
@@ -567,7 +575,7 @@ for (i in seq_along(top_snvs)) {
 
 
 
-out_pdf <- file.path(out_dir, "top_snvs_spatial.pdf")
+out_pdf <- file.path(plot_dir, "top_snvs_spatial.pdf")
 pdf(out_pdf, width = 12, height = 6)   # open PDF device
 
 for (p in plots_list) {
@@ -689,7 +697,7 @@ library(pheatmap)
 library(RColorBrewer)
 cols <- colorRampPalette(c("white", "#f7b0b0", "#d7301f"))(50)
 
-pdf(file.path(out_dir, out_pdf), width = 6, height = max(4, nrow(frac_mat_ord)*0.12 + 1))
+pdf(file.path(plot_dir, out_pdf), width = 6, height = max(4, nrow(frac_mat_ord) * 0.12 + 1))
 pheatmap(frac_mat_ord,
          color = cols,
          cluster_rows = FALSE,
@@ -722,7 +730,7 @@ library(RColorBrewer)
 
 cols <- colorRampPalette(c("white", "#f7b0b0", "#d7301f"))(50)
 
-pdf(file.path(out_dir, out_pdf), width = 6, height = max(4, nrow(frac_mat_ord) * 0.12 + 1))
+pdf(file.path(plot_dir, out_pdf), width = 6, height = max(4, nrow(frac_mat_ord) * 0.12 + 1))
 
 pheatmap(frac_mat_ord,
          color = cols,

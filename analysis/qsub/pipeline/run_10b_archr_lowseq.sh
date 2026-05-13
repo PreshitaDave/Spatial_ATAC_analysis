@@ -9,7 +9,8 @@
 
 module load R/4.4.0
 export NSLOTS=${NSLOTS:-6}
+export PLOT_DIR="${PLOT_DIR:-/projectnb/paxlab/presh/projects/spatial_atac/analysis/plots/comparison/somatic}"
 
-cd /projectnb/paxlab/presh/projects/spatial_atac/analysis/src
-Rscript 10b_archr_variant_plotting_lowseq.R
+cd /projectnb/paxlab/presh/projects/spatial_atac
+Rscript analysis/src/pipeline/archr/10b_archr_variant_plotting_lowseq.R
 

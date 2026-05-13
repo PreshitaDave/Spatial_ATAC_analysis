@@ -16,8 +16,11 @@ set.seed(1)
 addArchRGenome("hg38")
 addArchRThreads(threads = as.integer(Sys.getenv("NSLOTS", "6")))
 
-out_dir <- "/projectnb/paxlab/presh/projects/spatial_atac/analysis/comparison/somatic"
-dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+plot_dir <- Sys.getenv(
+  "PLOT_DIR",
+  unset = "/projectnb/paxlab/presh/projects/spatial_atac/analysis/plots/comparison/somatic"
+)
+dir.create(plot_dir, recursive = TRUE, showWarnings = FALSE)
 
 # =============================================================
 # SECTION 1: Build lowseq ArchR project from arrow file
@@ -257,7 +260,7 @@ legend_breaks <- unique(c(0, 1, round(mut_cap * c(0.25, 0.5, 0.75)), floor(mut_c
 legend_labels <- c(as.character(legend_breaks[-length(legend_breaks)]),
                    paste0("≥", floor(mut_cap)))
 
-pdf(file.path(out_dir, "archr_variant_overlay_lowseq.pdf"), width = 14, height = 10)
+pdf(file.path(plot_dir, "archr_variant_overlay_lowseq.pdf"), width = 14, height = 10)
 
 # =============================================
 # PLOT 0: Histogram - cells by # somatic mutations (488B, capped)
@@ -465,7 +468,7 @@ if (has_spatial) {
 }
 
 dev.off()
-cat("\nPlots saved to:", file.path(out_dir, "archr_variant_overlay_lowseq.pdf"), "\n")
+cat("\nPlots saved to:", file.path(plot_dir, "archr_variant_overlay_lowseq.pdf"), "\n")
 
 cat("\nEnd time:", format(Sys.time()), "\n")
 cat("=== Done ===\n")

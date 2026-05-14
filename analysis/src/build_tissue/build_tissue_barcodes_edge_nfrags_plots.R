@@ -8,16 +8,104 @@ log_msg <- function(tag, msg) {
 }
 
 project_root <- Sys.getenv("PROJECT_ROOT", "/projectnb/paxlab/presh/projects/spatial_atac")
-spatial_file <- file.path(project_root, "Data", "tissue_positions_list.csv")
-out_barcode_dir <- file.path(project_root, "Data", "01_inputs", "barcodes", "tissue_barcodes")
-out_plot_dir <- file.path(project_root, "analysis", "plots", "variant_qc", "edge_effect_nfrags")
+spatial_candidates <- c(
+  file.path(project_root, "Data", "tissue_positions_list.csv"),
+  file.path(project_root, "Data", "tissue_positions_list.csv.lnk"),
+  file.path(project_root, "Data", "01_inputs", "spatial", "tissue_positions_list.csv"),
+  file.path(project_root, "Data", "01_inputs", "spatial", "tissue_positions_list.csv.lnk")
+)
+spatial_file <- spatial_candidates[file.exists(spatial_candidates)][1]
+if (is.na(spatial_file) || !nzchar(spatial_file)) {
+  spatial_file <- spatial_candidates[1]
+}
+out_barcode_dir <- Sys.getenv("OUT_BARCODE_DIR", file.path(project_root, "Data", "01_inputs", "barcodes", "tissue_barcodes"))
+out_plot_dir <- Sys.getenv("OUT_PLOT_DIR", file.path(project_root, "analysis", "plots", "variant_qc", "edge_effect_nfrags"))
 
 fragment_files <- list(
-  deepseq = file.path(project_root, "Data", "deepseq.fragments.sort.filtered.bed.gz"),
-  lowseq = file.path(project_root, "Data", "lowseq.fragments.sort.filtered.bed"),
-  deepseq_489 = file.path(project_root, "Data", "deepseq_489.fragments.sort.filtered.bed.gz"),
-  lowseq_489 = file.path(project_root, "Data", "lowseq_489.fragments.sort.filtered.bed.gz")
+  deepseq_488B = NULL,
+  lowseq_488B = NULL,
+  deepseq_489 = NULL,
+  lowseq_489 = NULL
 )
+
+# Helper: locate fragment file by trying preferred locations and patterns
+find_fragment <- function(name_variants) {
+  search_dirs <- c(
+    file.path(project_root, "Data", "01_inputs", "fragments"),
+    file.path(project_root, "Data")
+  )
+  for (d in search_dirs) {
+    for (pat in name_variants) {
+      p <- file.path(d, pat)
+      # exact match
+      if (file.exists(p)) return(p)
+      # try glob
+      g <- Sys.glob(file.path(d, pat))
+      if (length(g) > 0) return(g[1])
+    }
+  }
+  # last resort: try any file in project Data matching the pattern anywhere
+  for (pat in name_variants) {
+    g <- Sys.glob(file.path(project_root, "**", pat))
+    if (length(g) > 0) return(g[1])
+  }
+  NULL
+}
+
+# Preferred name patterns for each object
+fragment_files$deepseq_488B <- find_fragment(c(
+  "deepseq_488B/deepseq_488B.fragments.sort.filtered.bed.gz",
+  "deepseq_488B/deepseq_488B.fragments.sort.filtered.bed",
+  "deepseq_488B.fragments.sort.filtered.bed.gz.lnk",
+  "deepseq_488B.fragments.sort.filtered.bed.lnk",
+  "deepseq_488B.fragments.sort.filtered.bed.gz",
+  "deepseq_488B.fragments.sort.filtered.bed",
+  "deepseq_488B.fragments.from_bam.*.bed.gz",
+  "deepseq_488B/*.fragments*.bed*",
+  "deepseq.fragments.sort.filtered.bed.gz",
+  "deepseq.fragments.sort.filtered.bed.gz.lnk",
+  "deepseq.fragments.sort.filtered.bed.gzip.gz",
+  "deepseq.fragments.sort.filtered.bed"
+))
+fragment_files$lowseq_488B <- find_fragment(c(
+  "lowseq_488B/lowseq_488B.fragments.sort.filtered.bed.gz",
+  "lowseq_488B/lowseq_488B.fragments.sort.filtered.bed",
+  "lowseq_488B.fragments.sort.filtered.bed.gz.lnk",
+  "lowseq_488B.fragments.sort.filtered.bed.lnk",
+  "lowseq_488B.fragments.sort.filtered.bed.gz",
+  "lowseq_488B.fragments.sort.filtered.bed",
+  "lowseq_488B.fragments.from_bam.*.bed.gz",
+  "lowseq_488B/*.fragments*.bed*",
+  "lowseq.fragments.sort.filtered.bed",
+  "lowseq.fragments.sort.filtered.bed.lnk",
+  "lowseq.fragments.sort.filtered.bed.gz",
+  "lowseq.fragments.sort.filtered.bed.gz.lnk",
+  "lowseq.fragments.sort.filtered.bed.gzip.gz"
+))
+fragment_files$deepseq_489 <- find_fragment(c(
+  "deepseq_489/deepseq_489.fragments.sort.filtered.bed.gz",
+  "deepseq_489/deepseq_489.fragments.sort.filtered.bed",
+  "deepseq_489.fragments.sort.filtered.bed.gz.lnk",
+  "deepseq_489.fragments.sort.filtered.bed.lnk",
+  "deepseq_489.fragments.sort.filtered.bed.gz",
+  "deepseq_489.fragments.sort.filtered.bed",
+  "deepseq_489.fragments.from_bam.*.bed.gz",
+  "deepseq_489/*.fragments*.bed*",
+  "deepseq_489.fragments*.bed*",
+  "deepseq_489*fragments*"
+))
+fragment_files$lowseq_489 <- find_fragment(c(
+  "lowseq_489/lowseq_489.fragments.sort.filtered.bed.gz",
+  "lowseq_489/lowseq_489.fragments.sort.filtered.bed",
+  "lowseq_489.fragments.sort.filtered.bed.gz.lnk",
+  "lowseq_489.fragments.sort.filtered.bed.lnk",
+  "lowseq_489.fragments.sort.filtered.bed.gz",
+  "lowseq_489.fragments.sort.filtered.bed",
+  "lowseq_489.fragments.from_bam.*.bed.gz",
+  "lowseq_489/*.fragments*.bed*",
+  "lowseq_489.fragments*.bed*",
+  "lowseq_489*fragments*"
+))
 
 # Parameters (override via environment variables when needed)
 y_tissue_cutoff <- as.numeric(Sys.getenv("Y_TISSUE_CUTOFF", "4000"))
@@ -29,6 +117,8 @@ mad_multiplier <- as.numeric(Sys.getenv("MAD_MULTIPLIER", "8"))
 force_recount <- as.integer(Sys.getenv("FORCE_RECOUNT", "0"))
 threshold_round_to <- as.numeric(Sys.getenv("THRESHOLD_ROUND_TO", "5000"))
 threshold_rule <- Sys.getenv("THRESHOLD_RULE", "quantile")
+# Choose axis for edge detection: "row" (top/bottom) or "col" (left/right)
+edge_axis <- Sys.getenv("EDGE_AXIS", "row")
 
 log_msg("start", "build_tissue_barcodes_edge_nfrags_plots.R")
 log_msg("start", sprintf("PROJECT_ROOT=%s", project_root))
@@ -46,9 +136,10 @@ if (!file.exists(spatial_file)) {
   stop(sprintf("Missing spatial file: %s", spatial_file), call. = FALSE)
 }
 
-for (dataset in names(fragment_files)) {
-  if (!file.exists(fragment_files[[dataset]])) {
-    stop(sprintf("Missing fragments file for %s: %s", dataset, fragment_files[[dataset]]), call. = FALSE)
+for (obj in names(fragment_files)) {
+  frag <- fragment_files[[obj]]
+  if (is.null(frag) || length(frag) == 0L || !file.exists(frag)) {
+    stop(sprintf("Missing fragments file for %s: %s", obj, as.character(frag)), call. = FALSE)
   }
 }
 
@@ -67,61 +158,62 @@ spatial_dt[, barcode := as.character(barcode)]
 # User-specified geometry: top tissue is 488B, bottom near origin is 489.
 spatial_dt[, tissue := fifelse(y_spatial > y_tissue_cutoff, "488B", "489")]
 
-build_nfrags_from_fragments <- function(dataset, fragments_path) {
-  cache_file <- file.path(out_barcode_dir, sprintf("%s_nFrags_from_fragments.tsv.gz", dataset))
+build_nfrags_from_fragments <- function(object_name, fragments_path) {
+  # cache file lives inside a per-object folder under out_barcode_dir
+  obj_dir <- file.path(out_barcode_dir, object_name)
+  dir.create(obj_dir, recursive = TRUE, showWarnings = FALSE)
+  cache_file <- file.path(obj_dir, sprintf("%s_nFrags_from_fragments.tsv.gz", object_name))
   if (file.exists(cache_file) && force_recount != 1L) {
-    log_msg("resume", sprintf("%s: using cached nFrags table %s", dataset, cache_file))
+    log_msg("resume", sprintf("%s: using cached nFrags table %s", object_name, cache_file))
     dt <- fread(cache_file)
     dt[, barcode := as.character(barcode)]
     dt[, nFrags := as.numeric(nFrags)]
     return(dt)
   }
 
-  log_msg("step", sprintf("%s: counting nFrags per barcode from %s", dataset, fragments_path))
-  tmp_file <- tempfile(pattern = sprintf("%s_nfrags_", dataset), fileext = ".tsv")
+  log_msg("step", sprintf("%s: counting nFrags per barcode from %s", object_name, fragments_path))
+  tmp_file <- tempfile(pattern = sprintf("%s_nfrags_", object_name), fileext = ".tsv")
 
-  if (grepl("\\.gz$", fragments_path)) {
-    if (nzchar(Sys.which("gzip"))) {
-      reader <- "gzip -dc"
-    } else if (nzchar(Sys.which("zcat"))) {
-      reader <- "zcat"
-    } else {
-      stop("Neither gzip nor zcat is available for gzipped fragments input", call. = FALSE)
-    }
-  } else {
-    reader <- "cat"
-  }
-  cmd <- sprintf(
-    "%s %s | awk 'NF>=4{bc=$4; sub(/-1$/, \"\", bc); n[bc]++} END{for(b in n) print b \"\\t\" n[b]}' > %s",
-    reader,
-    shQuote(fragments_path),
-    shQuote(tmp_file)
-  )
-  run_shell(cmd)
+  # Read fragments directly in R using fread for efficiency
+  suppressPackageStartupMessages(library(data.table))
+  
+  # Use fread with only columns we need (chr, start, end, barcode, count)
+  # For gzipped files, fread handles decompression automatically
+  dt_frags <- fread(fragments_path, header = FALSE, select = c(4))
+  setnames(dt_frags, "barcode")
+  dt_frags[, barcode := as.character(barcode)]
+  
+  # Remove -1 suffix from barcodes
+  dt_frags[, barcode := sub("-1$", "", barcode)]
+  
+  # Count fragments per barcode
+  dt_counts <- dt_frags[, .(nFrags = .N), by = barcode]
+  
+  # Write to temp file
+  fwrite(dt_counts, tmp_file, sep = "\t", col.names = FALSE)
 
   if (!file.exists(tmp_file) || file.info(tmp_file)$size <= 0) {
-    stop(sprintf("nFrags counting produced empty output for %s (%s)", dataset, fragments_path), call. = FALSE)
+    stop(sprintf("nFrags counting produced empty output for %s (%s)", object_name, fragments_path), call. = FALSE)
   }
 
-  dt <- fread(tmp_file, header = FALSE)
-  if (ncol(dt) < 2L) {
-    stop(sprintf("Malformed nFrags table for %s: expected 2 columns, found %d", dataset, ncol(dt)), call. = FALSE)
-  }
-  setnames(dt, c("barcode", "nFrags"))
-  dt[, barcode := as.character(barcode)]
-  dt[, nFrags := as.numeric(nFrags)]
+  dt <- dt_counts
   dt <- dt[!is.na(barcode) & nzchar(barcode)]
   dt <- unique(dt, by = "barcode")
 
   fwrite(dt, cache_file, sep = "\t")
   unlink(tmp_file)
-  log_msg("done", sprintf("%s: wrote nFrags cache %s (%d barcodes)", dataset, cache_file, nrow(dt)))
+  log_msg("done", sprintf("%s: wrote nFrags cache %s (%d barcodes)", object_name, cache_file, nrow(dt)))
 
   dt
 }
 
-compute_edge_threshold <- function(dt_tissue) {
-  rows <- sort(unique(dt_tissue$array_row))
+compute_edge_threshold <- function(dt_tissue, axis = "row") {
+  if (axis == "col") {
+    vals <- dt_tissue$array_col
+  } else {
+    vals <- dt_tissue$array_row
+  }
+  rows <- sort(unique(vals))
   if (!length(rows)) {
     return(list(
       edge_n_rows = 0L,
@@ -139,7 +231,12 @@ compute_edge_threshold <- function(dt_tissue) {
   upper_edge_rows <- rows[(length(rows) - edge_n_rows + 1):length(rows)]
   edge_rows <- unique(c(lower_edge_rows, upper_edge_rows))
 
-  dt_tissue[, is_edge_row := array_row %in% edge_rows]
+  # mark edge positions depending on axis
+  if (axis == "col") {
+    dt_tissue[, is_edge_row := array_col %in% edge_rows]
+  } else {
+    dt_tissue[, is_edge_row := array_row %in% edge_rows]
+  }
   core_vals <- dt_tissue[is_edge_row == FALSE & !is.na(nFrags), nFrags]
   if (length(core_vals) < 50L) {
     core_vals <- dt_tissue[!is.na(nFrags), nFrags]
@@ -179,9 +276,13 @@ compute_edge_threshold <- function(dt_tissue) {
   )
 }
 
-plot_before_after <- function(dt_tissue, dataset, tissue_name, threshold, out_dir) {
-  before_file <- file.path(out_dir, sprintf("%s_%s_before_edge_filter.png", dataset, tissue_name))
-  after_file <- file.path(out_dir, sprintf("%s_%s_after_edge_filter.png", dataset, tissue_name))
+plot_before_after <- function(dt_tissue, object_name, dataset, tissue_name, th, out_dir, axis = "row") {
+  threshold <- th$threshold
+  obj_plot_dir <- file.path(out_dir, object_name)
+  dir.create(obj_plot_dir, recursive = TRUE, showWarnings = FALSE)
+  before_file <- file.path(obj_plot_dir, sprintf("%s_before_edge_filter.png", object_name))
+  after_file <- file.path(obj_plot_dir, sprintf("%s_after_edge_filter.png", object_name))
+  hist_file <- file.path(obj_plot_dir, sprintf("%s_nFrags_hist_cutoff.png", object_name))
 
   # Before plot: show ALL cells, color by nFrags (gray for missing fragments)
   cells_with_frags <- dt_tissue[!is.na(nFrags)]
@@ -193,7 +294,11 @@ plot_before_after <- function(dt_tissue, dataset, tissue_name, threshold, out_di
     {if (nrow(cells_without_frags) > 0) 
       geom_point(data = cells_without_frags, color = "lightgray", size = 0.3, alpha = 0.5)
     } +
-    # Overlay edge-effect cells with black circles
+    # Emphasize edge-effect cells by plotting them larger and colored by nFrags
+    {if (nrow(dt_tissue[is_edge_effect == TRUE & !is.na(nFrags)]) > 0)
+      geom_point(data = dt_tissue[is_edge_effect == TRUE & !is.na(nFrags)], aes(x = x_spatial, y = y_spatial, color = nFrags), size = 1.2, stroke = 0)
+    } +
+    # Overlay hollow black circles to mark edge-effect cells
     geom_point(
       data = dt_tissue[is_edge_effect == TRUE],
       shape = 1,
@@ -206,8 +311,8 @@ plot_before_after <- function(dt_tissue, dataset, tissue_name, threshold, out_di
     theme_classic(base_size = 11) +
     labs(
       title = sprintf("%s %s: Before edge filtering (all cells from spatial)", dataset, tissue_name),
-      subtitle = sprintf("All %d cells shown; edge rows + nFrags >= %.0f marked with circles", 
-                         nrow(dt_tissue), threshold),
+      subtitle = sprintf("All %d cells shown; edge %s + nFrags >= %.0f marked", 
+                         nrow(dt_tissue), ifelse(axis == "col", "cols", "rows"), threshold),
       x = "x_spatial",
       y = "y_spatial",
       color = "nFrags"
@@ -227,12 +332,22 @@ plot_before_after <- function(dt_tissue, dataset, tissue_name, threshold, out_di
       color = "nFrags"
     )
 
+  # Histogram of nFrags with cutoff line
+  dt_hist <- dt_tissue[!is.na(nFrags)]
+  p_hist <- ggplot(dt_hist, aes(x = nFrags)) +
+    geom_histogram(bins = 100, fill = "grey80", color = "grey50") +
+    scale_x_continuous(trans = "log10") +
+    geom_vline(xintercept = threshold, color = "red", linetype = "dashed", size = 0.7) +
+    theme_classic(base_size = 11) +
+    labs(title = sprintf("%s %s: nFrags distribution (log10)", dataset, tissue_name), x = "nFrags", y = "count")
+
   ggsave(before_file, p_before, width = 8.5, height = 6.5, dpi = 220)
   ggsave(after_file, p_after, width = 8.5, height = 6.5, dpi = 220)
+  ggsave(hist_file, p_hist, width = 7, height = 5, dpi = 220)
 }
 
-process_combo <- function(dataset, tissue_name, nfrags_dt) {
-  log_msg("step", sprintf("Processing %s %s", dataset, tissue_name))
+process_combo <- function(object_name, dataset, tissue_name, nfrags_dt) {
+  log_msg("step", sprintf("Processing %s %s (object=%s)", dataset, tissue_name, object_name))
 
   # Include ALL cells from spatial file, even those without fragments
   dt <- merge(
@@ -266,25 +381,31 @@ process_combo <- function(dataset, tissue_name, nfrags_dt) {
     ))
   }
 
-  th <- compute_edge_threshold(copy(dt_with_frags))
+  th <- compute_edge_threshold(copy(dt_with_frags), edge_axis)
   edge_rows <- unique(c(th$lower_edge_rows, th$upper_edge_rows))
-
-  dt[, is_edge_row := array_row %in% edge_rows]
+  if (edge_axis == "col") {
+    dt[, is_edge_row := array_col %in% edge_rows]
+  } else {
+    dt[, is_edge_row := array_row %in% edge_rows]
+  }
   dt[, is_edge_effect := is_edge_row & is.finite(nFrags) & nFrags >= th$threshold]
 
   all_barcodes <- sort(unique(dt$barcode))
   edge_barcodes <- sort(unique(dt[is_edge_effect == TRUE, barcode]))
   keep_barcodes <- sort(setdiff(all_barcodes, edge_barcodes))
 
-  all_file <- file.path(out_barcode_dir, sprintf("%s_%s.barcodes.tsv", dataset, tissue_name))
-  edge_file <- file.path(out_barcode_dir, sprintf("%s_%s.edge_effect.barcodes.tsv", dataset, tissue_name))
-  keep_file <- file.path(out_barcode_dir, sprintf("%s_%s.no_edge_effect.barcodes.tsv", dataset, tissue_name))
+  obj_dir <- file.path(out_barcode_dir, object_name)
+  dir.create(obj_dir, recursive = TRUE, showWarnings = FALSE)
+
+  all_file <- file.path(obj_dir, sprintf("%s.barcodes.tsv", object_name))
+  edge_file <- file.path(obj_dir, sprintf("%s.edge_effect.barcodes.tsv", object_name))
+  keep_file <- file.path(obj_dir, sprintf("%s.no_edge_effect.barcodes.tsv", object_name))
 
   writeLines(all_barcodes, all_file)
   writeLines(edge_barcodes, edge_file)
   writeLines(keep_barcodes, keep_file)
 
-  plot_before_after(dt, dataset, tissue_name, th$threshold, out_plot_dir)
+  plot_before_after(dt, object_name, dataset, tissue_name, th, out_plot_dir, edge_axis)
 
   log_msg("done", sprintf(
     "%s %s: total=%d edge=%d kept=%d edge_rows=%d threshold_raw=%.1f threshold_rounded=%.0f q_hi=%.1f mad_cut=%.1f",
@@ -312,32 +433,29 @@ process_combo <- function(dataset, tissue_name, nfrags_dt) {
 }
 
 # -----------------------------------------------------------------------------
-# Build dataset-level nFrags tables from fragments
+# Build per-object nFrags tables and process each object
+# Objects: deepseq_488B, deepseq_489, lowseq_488B, lowseq_489
+# Each object gets its own folder under out_barcode_dir
 # -----------------------------------------------------------------------------
-deepseq_nfrags <- build_nfrags_from_fragments("deepseq", fragment_files$deepseq)
-deepseq_489_nfrags <- build_nfrags_from_fragments("deepseq_489", fragment_files$deepseq_489)
-lowseq_nfrags <- build_nfrags_from_fragments("lowseq", fragment_files$lowseq)
-lowseq_489_nfrags <- build_nfrags_from_fragments("lowseq_489", fragment_files$lowseq_489)
+objects <- list(
+  deepseq_488B = list(dataset = "deepseq", tissue = "488B", fragments = fragment_files$deepseq_488B),
+  deepseq_489 = list(dataset = "deepseq", tissue = "489", fragments = fragment_files$deepseq_489),
+  lowseq_488B = list(dataset = "lowseq", tissue = "488B", fragments = fragment_files$lowseq_488B),
+  lowseq_489 = list(dataset = "lowseq", tissue = "489", fragments = fragment_files$lowseq_489)
+)
 
-# -----------------------------------------------------------------------------
-# Section 1: deepseq tissue 488B
-# -----------------------------------------------------------------------------
-s1 <- process_combo("deepseq", "488B", deepseq_nfrags)
+res_list <- list()
+for (obj in names(objects)) {
+  info <- objects[[obj]]
+  dt_nfrags <- build_nfrags_from_fragments(obj, info$fragments)
+  res <- process_combo(obj, info$dataset, info$tissue, dt_nfrags)
+  res_list[[obj]] <- res
+}
 
-# -----------------------------------------------------------------------------
-# Section 2: deepseq tissue 489
-# -----------------------------------------------------------------------------
-s2 <- process_combo("deepseq", "489", deepseq_489_nfrags)
-
-# -----------------------------------------------------------------------------
-# Section 3: lowseq tissue 488B
-# -----------------------------------------------------------------------------
-s3 <- process_combo("lowseq", "488B", lowseq_nfrags)
-
-# -----------------------------------------------------------------------------
-# Section 4: lowseq tissue 489
-# -----------------------------------------------------------------------------
-s4 <- process_combo("lowseq", "489", lowseq_489_nfrags)
+s1 <- res_list$deepseq_488B
+s2 <- res_list$deepseq_489
+s3 <- res_list$lowseq_488B
+s4 <- res_list$lowseq_489
 
 summary_dt <- rbindlist(list(s1, s2, s3, s4), fill = TRUE)
 summary_file <- file.path(out_barcode_dir, "edge_effect_nfrags_thresholds.tsv")

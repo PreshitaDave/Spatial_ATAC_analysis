@@ -1,0 +1,7 @@
+Audit generated at: Wed May 13 16:50:11 EDT 2026
+Symlinks total: 141
+Symlinks missing .lnk: 126
+Broken symlinks: 97
+Scripts inventoried: 148
+Likely unused scripts: 115
+Absolute paths missing: 505

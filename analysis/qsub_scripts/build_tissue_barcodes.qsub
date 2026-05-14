@@ -1,0 +1,36 @@
+#!/bin/bash
+#$ -cwd
+#$ -V
+#$ -l h_rt=04:00:00
+#$ -pe omp 1
+#$ -l mem_per_core=8G
+#$ -P paxlab
+#$ -o /projectnb/paxlab/presh/projects/spatial_atac/analysis/qsub_logs/build_tissue.o$JOB_ID
+#$ -e /projectnb/paxlab/presh/projects/spatial_atac/analysis/qsub_logs/build_tissue.e$JOB_ID
+#$ -N build_tissue_barcodes
+
+cd /projectnb/paxlab/presh/projects/spatial_atac
+
+echo "[$(date '+%F %T')] [JOB] Starting build_tissue_barcodes job..."
+echo "[$(date '+%F %T')] [JOB] Node: $(hostname)"
+echo "[$(date '+%F %T')] [JOB] Job ID: $JOB_ID"
+
+# Load R module
+module load R
+
+# Verify R is available
+echo "[$(date '+%F %T')] [JOB] R version: $(Rscript --version 2>&1)"
+
+# Run the build_tissue script
+echo "[$(date '+%F %T')] [JOB] Executing build_tissue_barcodes_edge_nfrags_plots.R..."
+Rscript analysis/src/build_tissue/build_tissue_barcodes_edge_nfrags_plots.R 2>&1
+
+# Check exit status
+if [ $? -eq 0 ]; then
+    echo "[$(date '+%F %T')] [JOB] Script completed successfully!"
+else
+    echo "[$(date '+%F %T')] [JOB] Script failed with error code $?"
+    exit 1
+fi
+
+echo "[$(date '+%F %T')] [JOB] Job finished."

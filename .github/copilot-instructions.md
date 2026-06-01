@@ -99,6 +99,6 @@ Resource Management: Immediately terminate and debug any stalled or failing jobs
 
 
 
-
+<!-- 
 Current focus:
-I'm currently trying to run alleloscope on lowseq data, for all tissues separately, and together (total 3 runs), but tissue 489 is giving me grief. Parallely, I run somatic_chr to compare the somatic snv variants from monopogen to compare lowseq and deepseq since technically thet should be the same variants.
+I'm currently trying to run alleloscope on lowseq data, for all tissues separately, and together (total 3 runs), but tissue 489 is giving me grief. Parallely, I run somatic_chr to compare the somatic snv variants from monopogen to compare lowseq and deepseq since technically thet should be the same variants. -->

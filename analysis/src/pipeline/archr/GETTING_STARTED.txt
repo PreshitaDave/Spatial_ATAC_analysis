@@ -1,0 +1,245 @@
+╔════════════════════════════════════════════════════════════════════════════╗
+║                                                                            ║
+║        🎯 ArchR QC CLUSTERING PIPELINE - GETTING STARTED                  ║
+║                                                                            ║
+║              Professional ATAC-seq preprocessing in one command             ║
+║                                                                            ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+⚡ QUICK START (Copy & Paste)
+─────────────────────────────────────────────────────────────────────────────
+
+cd /projectnb/paxlab/presh/projects/spatial_atac
+
+# Check that inputs exist
+ls -lh Data/01_inputs/fragments/*/
+ls -lh Data/01_inputs/barcodes/tissue_barcodes/*/
+
+# Submit the pipeline
+qsub analysis/qsub/pipeline/run_archR_qc_cluster.qsub.sh
+
+# This outputs a job ID like: "Your job 1234567 has been submitted"
+# Save that number!
+
+# Check status
+qstat -j 1234567
+
+# Watch logs in real-time
+tail -f analysis/qsub_logs/build_tissue/archR_qc_cluster_1234567.log
+
+# When done, review outputs
+cat analysis/plots/cnv_analysis/archR_processing_summary.tsv
+ls -lh analysis/plots/cnv_analysis/archR_qc_*.pdf
+
+
+📖 FULL DOCUMENTATION
+─────────────────────────────────────────────────────────────────────────────
+
+For step-by-step instructions:
+  → analysis/src/pipeline/archr/QUICKSTART.md
+
+For comprehensive details:
+  → analysis/src/pipeline/archr/README_ArchR_Pipeline.md
+
+For troubleshooting:
+  → See "Troubleshooting" section in README_ArchR_Pipeline.md
+
+
+🔍 WHAT THE PIPELINE DOES
+─────────────────────────────────────────────────────────────────────────────
+
+INPUT:
+  • Fragment files (.bed.gz): Data/01_inputs/fragments/{object}/
+  • Barcode files (.tsv): Data/01_inputs/barcodes/tissue_barcodes/{object}/
+
+PROCESSING:
+  1. Converts fragments to Arrow format (efficient storage)
+  2. Creates ArchR projects from Arrow files
+  3. Filters to no-edge-effect barcodes only
+  4. Applies QC filters (TSS enrichment ≥ 4, fragments ≥ 1000)
+  5. Removes doublets (if available)
+  6. Computes dimensionality reduction (iterative LSI)
+  7. Performs clustering (K-means, resolution 0.8)
+  8. Generates UMAP visualization
+  9. Creates comprehensive PDF plots
+  10. Saves ArchR objects for downstream analysis
+
+OUTPUT:
+  • ArchR objects: Data/01_outputs/archR_objects/{object}/
+  • PDF reports: analysis/plots/cnv_analysis/archR_qc_{object}.pdf
+  • RDS objects: Data/01_outputs/archR_objects/{object}/*_archR_final.rds
+  • Summary table: analysis/plots/cnv_analysis/archR_processing_summary.tsv
+
+
+📊 PDF REPORTS INCLUDE
+─────────────────────────────────────────────────────────────────────────────
+
+Per-object PDF contains:
+  ✓ Title page with timestamp
+  ✓ TSS vs Fragment count scatter plot (QC filtering shown)
+  ✓ Fragment count histogram (with threshold line)
+  ✓ TSS enrichment histogram (with threshold line)
+  ✓ QC summary bar chart (pass/fail counts)
+  ✓ UMAP by clusters (cell type visualization)
+  ✓ UMAP by TSS enrichment (quality control)
+  ✓ UMAP by fragment count (sequencing depth)
+
+All plots are publication-ready!
+
+
+🎯 FOR YOUR SPECIFIC USE CASES
+─────────────────────────────────────────────────────────────────────────────
+
+ALLELOSCOPE (CNV analysis):
+  1. Run ArchR pipeline (this script)
+  2. Extract barcodes from clusters (R code in QUICKSTART.md)
+  3. Use cluster-specific barcodes for Alleloscope:
+     qsub analysis/qsub/alleloscope/run_alleloscope_*.qsub.sh
+
+SOMATIC VARIANT ANALYSIS:
+  1. Run ArchR pipeline (this script)
+  2. Use ArchR objects to stratify variants
+  3. Color variants by cluster on UMAP
+  4. Perform DE analysis per cluster
+
+TISSUE 489 (Known issues):
+  • Monitor logs carefully for errors
+  • Check barcode format compatibility
+  • If fails, check: Data/01_inputs/barcodes/tissue_barcodes/*/tissue_489*
+  • Verify fragments: zcat Data/01_inputs/fragments/lowseq_489/*.bed.gz | head
+
+
+⏱️ EXPECTED RUNTIME
+─────────────────────────────────────────────────────────────────────────────
+
+Single object: 30-60 minutes
+All 4 objects: 60-120 minutes (parallel processing)
+With 8 cores: ~90 minutes expected
+With 16 cores: ~45 minutes expected
+
+Memory usage: 8-16 GB per object
+Disk space: 10-20 GB per object
+
+
+✓ VERIFICATION CHECKLIST
+─────────────────────────────────────────────────────────────────────────────
+
+Before running:
+  ☐ You're on a compute node (not scc1 login node)
+  ☐ Fragment files: Data/01_inputs/fragments/*/
+  ☐ Barcode files: Data/01_inputs/barcodes/tissue_barcodes/*/
+  ☐ R module loads: module load R && Rscript --version
+  ☐ Output directories writable
+
+After running:
+  ☐ Check log: tail analysis/qsub_logs/build_tissue/archR_qc_cluster_*.log
+  ☐ Check objects: ls -lh Data/01_outputs/archR_objects/*/
+  ☐ Check PDFs: ls -lh analysis/plots/cnv_analysis/archR_qc_*.pdf
+  ☐ Check summary: cat analysis/plots/cnv_analysis/archR_processing_summary.tsv
+  ☐ Load in R: readRDS("Data/01_outputs/archR_objects/deepseq_488B/*_archR_final.rds")
+
+
+🔧 CUSTOMIZATION
+─────────────────────────────────────────────────────────────────────────────
+
+Edit these parameters in analysis/src/pipeline/archr/0_create_archr_qc_cluster.R:
+
+  min_tss <- 4           # Minimum TSS enrichment (default: 4)
+  min_frags <- 1000      # Minimum fragment count (default: 1000)
+  max_frags <- Inf       # Maximum fragments (default: Inf)
+  doublet_cutoff <- 2    # Doublet score threshold (default: 2)
+
+Then run:
+  export NSLOTS=8
+  Rscript analysis/src/pipeline/archr/0_create_archr_qc_cluster.R
+
+
+📞 TROUBLESHOOTING
+─────────────────────────────────────────────────────────────────────────────
+
+Problem: "No matching cells found!"
+  → Check barcode format: head Data/01_inputs/barcodes/tissue_barcodes/*/
+  → Check fragment barcodes: zcat Data/01_inputs/fragments/*/*.bed.gz | head
+  → They should match (may need -1 suffix removal)
+
+Problem: Job ran out of memory
+  → Increase mem_per_core in qsub script (currently 8G)
+  → Or reduce max_frags parameter to subset cells
+
+Problem: Job ran out of time
+  → Increase h_rt in qsub script (currently 24:00:00)
+  → Or increase CPU cores to speed up (currently 8)
+
+Problem: Module not found
+  → Run: module load R
+  → Verify: which Rscript
+
+Problem: Missing ArchR libraries
+  → These are already installed
+  → Script automatically adds to .libPaths()
+
+
+🎓 LEARNING RESOURCES
+─────────────────────────────────────────────────────────────────────────────
+
+ArchR documentation: https://www.archrproject.com/
+ArchR cookbook: https://www.archrproject.com/articles/Articles.html
+ATAC-seq analysis: https://www.archrproject.com/articles/AP_Archr_Installation_and_Basic_Usage.html
+
+For R code examples, see:
+  → analysis/src/pipeline/archr/QUICKSTART.md (includes R examples)
+  → analysis/src/pipeline/archr/README_ArchR_Pipeline.md (usage section)
+
+
+🎉 SUCCESS INDICATORS
+─────────────────────────────────────────────────────────────────────────────
+
+Pipeline succeeded when:
+  ✓ Log shows "ArchR Pipeline Complete"
+  ✓ All 4 PDF files created (or however many you're processing)
+  ✓ Each PDF has 10+ pages of plots
+  ✓ Summary table shows all objects with STATUS = SUCCESS
+  ✓ Can load RDS files in R without errors
+
+Pipeline failed when:
+  ✗ Log shows "ERROR" or "FAILED"
+  ✗ PDFs are missing or truncated
+  ✗ Summary table shows STATUS = FAILED
+  ✗ Cannot load RDS files
+
+
+📋 NEXT STEPS
+─────────────────────────────────────────────────────────────────────────────
+
+1. IMMEDIATE:
+   qsub analysis/qsub/pipeline/run_archR_qc_cluster.qsub.sh
+
+2. DURING EXECUTION:
+   tail -f analysis/qsub_logs/build_tissue/archR_qc_cluster_<JOB_ID>.log
+
+3. AFTER COMPLETION:
+   → Review PDF reports
+   → Load ArchR objects in R
+   → Extract cluster barcodes for Alleloscope
+   → Proceed with downstream analysis
+
+4. FOR YOUR PROJECTS:
+   → Alleloscope CNV analysis (tissue 489 attention needed!)
+   → Somatic variant comparison (lowseq vs deepseq)
+
+
+═══════════════════════════════════════════════════════════════════════════════
+
+                        🚀 READY TO BEGIN! 🚀
+
+                   Run: qsub analysis/qsub/pipeline/run_archR_qc_cluster.qsub.sh
+                   
+                  This will create professional ArchR objects with:
+                  • QC filtering
+                  • Clustering
+                  • UMAP visualization
+                  • Publication-ready PDFs
+
+                    Questions? See QUICKSTART.md or README_ArchR_Pipeline.md
+
+═══════════════════════════════════════════════════════════════════════════════

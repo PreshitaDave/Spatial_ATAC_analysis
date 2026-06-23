@@ -146,9 +146,9 @@ tryCatch({
   coords <- meta_df[cells_with_spatial, c("x_spatial", "y_spatial")]
   coords_matrix <- as.matrix(coords)
 
-  # FNN::get.knn returns list with idx (cell indices) and dist
+  # FNN::get.knn returns list with nn.index (cell indices) and nn.dist
   knn_result <- get.knn(coords_matrix, k = k)
-  knn_idx <- knn_result$nn.idx
+  knn_idx <- knn_result$nn.index
 
   # Build sparse row-normalized weight matrix
   # Each row i has uniform weights 1/k for its k neighbors
@@ -216,23 +216,21 @@ tryCatch({
 log_msg("step", "Re-subsetting project to cells with spatial coordinates...")
 
 # Create a new ArchR project with only the spatial cells
-# This is needed because the rest of the pipeline expects consistent dimensions
+# Use separate output directory for the subset (required by ArchR)
+subset_proj_dir <- file.path(dirname(proj_dir), sprintf("%s_spatial_subset", basename(proj_dir)))
+dir.create(subset_proj_dir, recursive = TRUE, showWarnings = FALSE)
+
 proj <- subsetArchRProject(proj, cells = rownames(proj@cellColData)[cells_with_spatial],
-                          outputDirectory = proj_dir, force = TRUE)
+                          outputDirectory = subset_proj_dir, force = TRUE)
 log_msg("step", sprintf("Subset project now has %d cells", nrow(proj@cellColData)))
 
 # Register smoothed LSI as a new reducedDims slot
 log_msg("step", "Registering smoothed LSI...")
 
 tryCatch({
-  # Create a new reducedDims object mirroring IterativeLSI
-  lsi_smooth <- list(
-    matSVD = matSVD_smoothed,
-    scaleDims = lsi_obj$scaleDims,
-    outDir = lsi_obj$outDir,
-    date = Sys.time(),
-    useMatrix = lsi_obj$useMatrix
-  )
+  # Copy the LSI object and update with smoothed matrix
+  lsi_smooth <- lsi_obj
+  lsi_smooth$matSVD <- matSVD_smoothed
 
   proj@reducedDims[["IterativeLSI_SpatialSmooth"]] <- lsi_smooth
   log_msg("step", "Registered IterativeLSI_SpatialSmooth")
@@ -301,9 +299,9 @@ tryCatch({
     mean(coherence)
   }
 
-  coh_before <- compute_coherence(as.numeric(proj@cellColData$Clusters), knn_result$nn.idx)
+  coh_before <- compute_coherence(as.numeric(proj@cellColData$Clusters), knn_result$nn.index)
   coh_after <- compute_coherence(as.numeric(proj@cellColData$Clusters_SpatialSmooth),
-                                 knn_result$nn.idx)
+                                 knn_result$nn.index)
 
   log_msg("step", sprintf("Coherence before: %.4f, after: %.4f (delta: +%.4f)",
                           coh_before, coh_after, coh_after - coh_before))

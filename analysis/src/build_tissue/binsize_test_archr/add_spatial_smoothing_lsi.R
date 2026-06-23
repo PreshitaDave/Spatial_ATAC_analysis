@@ -142,7 +142,7 @@ log_msg("step", sprintf("Building spatial kNN graph with k=%d...", k))
 
 tryCatch({
   coords <- proj@cellColData[cells_with_spatial, c("x_spatial", "y_spatial")]
-  coords_matrix <- as.matrix(coords)
+  coords_matrix <- as.matrix(data.frame(coords))
 
   # FNN::get.knn returns list with idx (cell indices) and dist
   knn_result <- get.knn(coords_matrix, k = k)

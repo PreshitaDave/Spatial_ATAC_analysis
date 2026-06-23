@@ -154,10 +154,12 @@ arrow_input_dir <- file.path(data_dir, "arrow")
 arrow_output_subdir <- if (binarize) "arrow_binarize" else "arrow_not_binarize"
 arrow_output_dir <- file.path(arrow_input_dir, arrow_output_subdir)
 analysis_output_dir <- file.path(project_root, "analysis", "binsize_comparison")
+metrics_output_dir <- file.path(analysis_output_dir, "metrics")
 
 # Create output directories
 dir.create(arrow_output_dir, recursive = TRUE, showWarnings = FALSE)
 dir.create(analysis_output_dir, recursive = TRUE, showWarnings = FALSE)
+dir.create(metrics_output_dir, recursive = TRUE, showWarnings = FALSE)
 
 # Define tissue metadata - points to fragment files (will create arrows from these)
 tissue_metadata <- list(
@@ -200,7 +202,7 @@ if (is.null(metadata)) {
 
 # Construct output filenames
 output_arrow <- file.path(arrow_output_dir, sprintf("%s_%dbp.arrow", tissue_name, tilesize))
-output_metrics <- file.path(analysis_output_dir, sprintf("%s_%dbp_binarize%s_metrics.txt", tissue_name, tilesize, binarize))
+output_metrics <- file.path(metrics_output_dir, sprintf("%s_%dbp_binarize%s_metrics.txt", tissue_name, tilesize, binarize))
 
 log_msg("step", sprintf("Fragment file: %s", metadata$fragments))
 log_msg("step", sprintf("Output arrow: %s", output_arrow))

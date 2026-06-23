@@ -4,7 +4,7 @@
 #
 # Build ArchR project from an existing arrow file, run the full downstream
 # pipeline (LSI -> Clusters -> UMAP), and generate comparison artifacts
-# (UMAP+gene-score CSV and PDF plots).
+# (UMAP embedding CSV and PDF plots).
 #
 # Per-variant worker script, called via qsub with args: tissue tilesize binarize
 #
@@ -56,9 +56,13 @@ output_proj_dir <- file.path(output_base_dir,
                              sprintf("%s_%dbp_binarize%s", tissue, tilesize, binarize))
 
 comparison_dir <- file.path(project_root, "analysis/binsize_comparison")
+umap_scores_dir <- file.path(comparison_dir, "umap_scores")
+metrics_output_dir <- file.path(comparison_dir, "metrics")
 
 dir.create(output_base_dir, recursive = TRUE, showWarnings = FALSE)
 dir.create(comparison_dir, recursive = TRUE, showWarnings = FALSE)
+dir.create(umap_scores_dir, recursive = TRUE, showWarnings = FALSE)
+dir.create(metrics_output_dir, recursive = TRUE, showWarnings = FALSE)
 
 # Verify arrow file exists
 if (!file.exists(arrow_file)) {
@@ -192,15 +196,15 @@ tryCatch({
 })
 
 # Write CSV
-csv_file <- file.path(comparison_dir,
-                      sprintf("%s_%dbp_binarize%s_umap_genescores.csv",
+csv_file <- file.path(umap_scores_dir,
+                      sprintf("%s_%dbp_binarize%s_umap_embeddings.csv",
                               tissue, tilesize, binarize))
 write.csv(umap_df, csv_file, row.names = FALSE)
-log_msg("step", sprintf("Saved UMAP+gene-scores CSV: %s", csv_file))
+log_msg("step", sprintf("Saved UMAP embeddings CSV: %s", csv_file))
 
 # Generate plots
 log_msg("step", "Generating PDF plots...")
-pdf_file <- file.path(comparison_dir,
+pdf_file <- file.path(metrics_output_dir,
                       sprintf("%s_%dbp_binarize%s_plots.pdf",
                               tissue, tilesize, binarize))
 

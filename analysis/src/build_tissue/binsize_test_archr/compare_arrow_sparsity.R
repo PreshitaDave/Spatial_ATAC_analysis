@@ -35,8 +35,10 @@ log_msg <- function(tag, msg) {
 # Setup paths and configuration
 project_root <- "/projectnb/paxlab/presh/projects/spatial_atac"
 analysis_output_dir <- file.path(project_root, "analysis", "binsize_comparison")
+metrics_output_dir <- file.path(analysis_output_dir, "metrics")
 
 dir.create(analysis_output_dir, recursive = TRUE, showWarnings = FALSE)
+dir.create(metrics_output_dir, recursive = TRUE, showWarnings = FALSE)
 
 log_msg("start", "===== Arrow Sparsity Comparison Analysis =====")
 
@@ -110,7 +112,7 @@ tissues_to_process <- if (!is.null(filter_tissue)) filter_tissue else all_tissue
 for (tissue in tissues_to_process) {
   for (ts in tilesizes) {
     for (bin in binarize_options) {
-      metrics_file <- file.path(analysis_output_dir,
+      metrics_file <- file.path(metrics_output_dir,
                                 sprintf("%s_%dbp_binarize%s_metrics.txt", tissue, ts, bin))
 
       if (file.exists(metrics_file)) {

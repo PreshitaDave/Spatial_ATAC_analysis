@@ -3,8 +3,8 @@
 # compare_archr_variant_umap.R
 #
 # Safe aggregator (no ArchR, no arrow file access) that reads per-variant
-# UMAP+gene-score CSVs and generates comparison plots showing cluster
-# separation and marker gene expression across tile-size/binarize variants.
+# UMAP embedding CSVs and generates comparison plots showing cluster
+# separation across tile-size/binarize variants.
 #
 # Usage:
 #   Rscript compare_archr_variant_umap.R [tissue_filter]
@@ -27,6 +27,7 @@ log_msg <- function(tag, msg) {
 # Setup paths
 project_root <- "/projectnb/paxlab/presh/projects/spatial_atac"
 comparison_dir <- file.path(project_root, "analysis/binsize_comparison")
+umap_scores_dir <- file.path(comparison_dir, "umap_scores")
 
 log_msg("start", "===== Comparing ArchR UMAP variants =====")
 
@@ -43,7 +44,7 @@ tilesizes <- c(500, 5000)
 binarize_options <- c(FALSE, TRUE)
 
 # Load all available CSVs
-log_msg("step", "Loading UMAP+gene-score CSVs...")
+log_msg("step", "Loading UMAP embedding CSVs...")
 
 all_data <- list()
 
@@ -52,8 +53,8 @@ tissues_to_process <- if (!is.null(filter_tissue)) filter_tissue else all_tissue
 for (tissue in tissues_to_process) {
   for (ts in tilesizes) {
     for (bin in binarize_options) {
-      csv_file <- file.path(comparison_dir,
-                           sprintf("%s_%dbp_binarize%s_umap_genescores.csv",
+      csv_file <- file.path(umap_scores_dir,
+                           sprintf("%s_%dbp_binarize%s_umap_embeddings.csv",
                                    tissue, ts, bin))
 
       if (file.exists(csv_file)) {

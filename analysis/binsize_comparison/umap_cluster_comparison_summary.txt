@@ -1,0 +1,25 @@
+====================================
+ArchR UMAP Cluster Comparison Summary
+====================================
+
+Generated: 2026-06-22 18:42:09 
+
+Variants analyzed:
+  500bp_FALSE: 4178 cells, 5 clusters
+  500bp_TRUE: 4178 cells, 5 clusters
+  5000bp_FALSE: 4178 cells, 5 clusters
+  5000bp_TRUE: 4178 cells, 5 clusters
+
+Marker genes evaluated:
+  
+
+Comparison plots:
+  Page 1: UMAP colored by Clusters (visual assessment of cluster separation)
+  Pages 2+: One marker gene per page, faceted by variant
+           Check for consistency of marker expression patterns across variants
+
+Key observations to check:
+  1. Cluster separation: Are clusters similarly separated across all variants?
+  2. Marker specificity: Do markers show expected tissue/cell-type patterns?
+  3. Consistency: Does 500bp vs 5000bp or binarize vs not-binarize show major differences?
+  4. Artifacts: Any unusual/noisy embedding patterns in particular variant(s)?

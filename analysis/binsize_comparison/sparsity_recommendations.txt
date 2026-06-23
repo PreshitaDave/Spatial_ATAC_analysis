@@ -1,0 +1,29 @@
+====================================
+Arrow Sparsity Comparison Summary
+====================================
+
+Generated: 2026-06-22 17:24:50 
+
+Overall Best Density Configuration:
+  Tissue: deepseq_488B
+  Tile Size: 5000 bp
+  Binarize: FALSE
+  Density: 0.103431
+  Sparsity: 0.8966 (89.66%)
+  Mean tiles per cell: 143328.81
+  Median tiles per cell: 150930.0
+
+Per-Tissue Recommendations:
+  deepseq_488B: Best density=0.103431 with 5000 bp tiles, binarize=FALSE (mean tiles/cell=143328.81)
+  deepseq_489: Best density=0.103431 with 5000 bp tiles, binarize=FALSE (mean tiles/cell=143328.81)
+  lowseq_488B: Best density=0.103431 with 5000 bp tiles, binarize=FALSE (mean tiles/cell=143328.81)
+  lowseq_489: Best density=0.103431 with 5000 bp tiles, binarize=FALSE (mean tiles/cell=143328.81)
+
+Interpretation Guide:
+  - Lower sparsity = more non-zero elements = more information retained
+  - Higher density = more non-zero values, potentially better for downstream analysis
+  - Tiles per cell = information density at the single-barcode level
+    * For spatial ATAC with ~1-10 cells/spot, target mean >= 100 tiles/cell for robust CNV calling
+    * If mean < 100, consider smaller tile size (higher resolution) to capture more signal
+
+Full Metrics Table:

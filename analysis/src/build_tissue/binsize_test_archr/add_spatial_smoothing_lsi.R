@@ -141,8 +141,10 @@ if (length(cells_with_spatial) == 0) {
 log_msg("step", sprintf("Building spatial kNN graph with k=%d...", k))
 
 tryCatch({
-  coords <- proj@cellColData[cells_with_spatial, c("x_spatial", "y_spatial")]
-  coords_matrix <- as.matrix(data.frame(coords))
+  # Convert cellColData to data.frame first (DFrame doesn't convert well directly)
+  meta_df <- as.data.frame(proj@cellColData)
+  coords <- meta_df[cells_with_spatial, c("x_spatial", "y_spatial")]
+  coords_matrix <- as.matrix(coords)
 
   # FNN::get.knn returns list with idx (cell indices) and dist
   knn_result <- get.knn(coords_matrix, k = k)

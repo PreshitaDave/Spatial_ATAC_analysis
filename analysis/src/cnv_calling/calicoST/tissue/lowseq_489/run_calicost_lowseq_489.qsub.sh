@@ -16,19 +16,15 @@ TISSUE="lowseq_489"
 PROJECT_ROOT="/projectnb/paxlab/presh/projects/spatial_atac"
 CALICOST_SRC_DIR="${PROJECT_ROOT}/analysis/src/cnv_calling/calicoST"
 OUTPUT_ROOT="${PROJECT_ROOT}/Data/04_analysis/cnv/calicoST/${TISSUE}"
-CALICOST_ENV="/projectnb/paxlab/presh/env/calicost_env"
+PYTHON="/projectnb/paxlab/presh/env/calicost_env/bin/python3"
 
 echo "=== CalicoST pipeline: ${TISSUE} ==="
 echo "Job ID: ${JOB_ID}"
 echo "Start: $(date)"
 echo "Host: $(hostname)"
 
-# Activate CalicoST Python environment
-source "${CALICOST_ENV}/bin/activate"
-
-# Verify environment
-python -c "import calicost; print('CalicoST version:', calicost.__version__)" 2>/dev/null || \
-    python -c "import sys; sys.path.insert(0,'/projectnb/paxlab/presh/software/CalicoST/src'); import calicost; print('CalicoST loaded')"
+# Verify environment (conda env; call python binary directly, no activate needed)
+${PYTHON} -c "import sys; sys.path.insert(0,'/projectnb/paxlab/presh/software/CalicoST/src'); import calicost; print('CalicoST loaded from', calicost.__file__)"
 
 # Change to script directory so relative config paths work
 cd "${CALICOST_SRC_DIR}"
@@ -41,7 +37,7 @@ echo ""
 echo "--- Step 2: Building CalicoST parsed_inputs ---"
 echo "Start: $(date)"
 
-python 2_build_calicost_inputs.py "${TISSUE}" --snps-per-bin 200
+${PYTHON} 2_build_calicost_inputs.py "${TISSUE}" --snps-per-bin 200
 
 echo "Step 2 complete: $(date)"
 
@@ -68,7 +64,7 @@ echo ""
 echo "--- Step 3: Tumor purity estimation ---"
 echo "Start: $(date)"
 
-python 3_run_purity.py tissue/${TISSUE}/config_purity.yaml
+${PYTHON} 3_run_purity.py tissue/${TISSUE}/config_purity.yaml
 
 echo "Step 3 complete: $(date)"
 
@@ -98,7 +94,7 @@ if [ ! -f "${TUMORPROP}" ]; then
     fi
 fi
 
-python 4_run_cna.py tissue/${TISSUE}/config_cna.yaml
+${PYTHON} 4_run_cna.py tissue/${TISSUE}/config_cna.yaml
 
 echo "Step 4 complete: $(date)"
 
@@ -109,7 +105,7 @@ echo ""
 echo "--- Step 5: Postprocessing and visualization ---"
 echo "Start: $(date)"
 
-python 5_postprocess_visualize.py "${TISSUE}" --n-clones 3 --n-clones-purity 5
+${PYTHON} 5_postprocess_visualize.py "${TISSUE}" --n-clones 3 --n-clones-purity 5
 
 echo "Step 5 complete: $(date)"
 

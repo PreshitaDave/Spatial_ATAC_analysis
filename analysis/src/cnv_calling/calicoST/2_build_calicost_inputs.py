@@ -132,7 +132,7 @@ def load_allele_counts(allele_file, archr_bare_barcodes):
 def load_hgtable(hgtable_file):
     logger.info(f"Loading gene annotation: {hgtable_file}")
     hgt = pd.read_csv(hgtable_file, sep="\t", header=0)
-    # Expected columns: chrom, chromStart, chromEnd, name2 (gene name)
+    # Columns: (index), name2, chrom, cdsStart, cdsEnd
     hgt.columns = hgt.columns.str.strip()
     # Normalize chromosome names (remove chr prefix if present)
     hgt["chrom"] = hgt["chrom"].astype(str).str.replace("^chr", "", regex=True)
@@ -372,8 +372,8 @@ def annotate_bins_with_genes(bin_df, hgt, ig_genes, hla_regions):
 
         overlap = hgt[
             (hgt["chrom"] == chrom) &
-            (hgt["chromStart"] < bend) &
-            (hgt["chromEnd"]   > bstart)
+            (hgt["cdsStart"] < bend) &
+            (hgt["cdsEnd"]   > bstart)
         ]
         gene_names = [g for g in overlap["name2"].unique()
                       if isinstance(g, str) and g not in ig_genes and g.strip()]

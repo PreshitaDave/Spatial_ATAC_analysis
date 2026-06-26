@@ -1,0 +1,67 @@
+# CalicoST configuration: tumor purity estimation for lowseq_489
+# Run with: python 3_run_purity.py tissue/lowseq_489/config_purity.yaml
+#
+# parsed_inputs/ must already exist at output_dir/parsed_inputs/
+# (built by 2_build_calicost_inputs.py, then symlinked here)
+
+# --- I/O ---
+# spaceranger_dir and snp_dir are bypassed because parsed_inputs/ exists
+spaceranger_dir : None
+snp_dir : None
+output_dir : /projectnb/paxlab/presh/projects/spatial_atac/Data/04_analysis/cnv/calicoST/lowseq_489/purity
+
+# --- Reference files ---
+geneticmap_file : /projectnb/paxlab/presh/software/CalicoST/GRCh38_resources/genetic_map_GRCh38_merged.tab.gz
+hgtable_file : /projectnb/paxlab/presh/software/CalicoST/GRCh38_resources/hgTables_hg38_gencode.txt
+filtergenelist_file : /projectnb/paxlab/presh/software/CalicoST/GRCh38_resources/ig_gene_list.txt
+filterregion_file : /projectnb/paxlab/presh/software/CalicoST/GRCh38_resources/HLA_regions.bed
+normalidx_file : None
+tumorprop_file : None
+supervision_clone_file : None
+alignment_files :
+bafonly : False
+
+# --- Preprocessing ---
+secondary_min_umi : 400
+min_snpumi_perspot : 50
+min_percent_expressed_spots : 0.005
+
+# --- Phase switch probability ---
+nu : 1.0
+logphase_shift : -2.0
+npart_phasing : 3
+
+# --- HMRF (purity uses more clones to capture purity variation) ---
+n_clones : 5
+n_clones_rdr : 2
+min_spots_per_clone : 50
+min_avgumi_per_clone : 5
+maxspots_pooling : 19
+tumorprop_threshold : 0.5
+max_iter_outer : 20
+nodepotential : weighted_sum
+initialization_method : rectangle
+num_hmrf_initialization_start : 0
+num_hmrf_initialization_end : 1
+spatial_weight : 1.0
+construct_adjacency_method : hexagon
+construct_adjacency_w : 1.0
+
+# --- HMM ---
+n_states : 7
+params : smp
+t : 1-1e-4
+t_phaseing : 0.9999
+fix_NB_dispersion : False
+shared_NB_dispersion : True
+fix_BB_dispersion : False
+shared_BB_dispersion : True
+max_iter : 30
+tol : 0.0001
+gmm_random_state : 0
+np_threshold : 1.0
+np_eventminlen : 10
+
+# --- Integer copy number ---
+nonbalance_bafdist : 1.0
+nondiploid_rdrdist : 10.0

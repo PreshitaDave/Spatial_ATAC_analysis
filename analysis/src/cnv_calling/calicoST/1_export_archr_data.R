@@ -85,12 +85,13 @@ tile_se <- getMatrixFromProject(proj, useMatrix = "TileMatrix", binarize = FALSE
 # tile_se is a SummarizedExperiment: rows = tiles, cols = cells
 tile_mat <- assay(tile_se, "TileMatrix")  # sparse Matrix (tiles × cells)
 
-# Genomic ranges for each tile row
-tile_gr <- rowRanges(tile_se)
+# Genomic ranges from rowData (rowRanges is NULL for TileMatrix in this ArchR version)
+# rowData has columns: seqnames, idx, start; end = start + bin_size
+rd <- as.data.frame(rowData(tile_se))
 tile_ranges_df <- data.frame(
-  chr   = as.character(seqnames(tile_gr)),
-  start = start(tile_gr),
-  end   = end(tile_gr)
+  chr   = as.character(rd$seqnames),
+  start = as.integer(rd$start),
+  end   = as.integer(rd$start) + bin_size
 )
 
 # Barcodes in column order (same as ArchR cellColData row order)

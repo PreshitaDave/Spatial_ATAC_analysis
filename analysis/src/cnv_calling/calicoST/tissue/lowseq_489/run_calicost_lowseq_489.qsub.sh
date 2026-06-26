@@ -1,5 +1,7 @@
-#!/bin/bash
+#!/bin/bash -l
+#$ -P paxlab
 #$ -N calicost_lowseq_489
+#$ -wd /projectnb/paxlab/presh/projects/spatial_atac
 #$ -pe omp 8
 #$ -l mem_per_core=16G
 #$ -l h_rt=12:00:00

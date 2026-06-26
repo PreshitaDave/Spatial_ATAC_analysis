@@ -1,0 +1,112 @@
+=====================================================================
+SPATIAL SMOOTHING ANALYSIS SUMMARY
+3-Method Comparison: Baseline vs Alpha-Blend vs Iterative
+Tissues: lowseq_489, lowseq_488B, deepseq_488B, deepseq_489
+Date: 2026-06-26
+=====================================================================
+
+METHODS
+-------
+Baseline:    No smoothing. Original LSI from IterativeLSI, resolution 0.8.
+Alpha-Blend: k=6, 1-hop spatial kNN. Smoothed LSI = 0.5*self + 0.5*neighbor_avg.
+             Distance cutoff = 3x median 1-NN distance (per-tissue adaptive).
+Iterative:   k=8, 2-hop, self-inclusive averaging. No alpha blending.
+             Two rounds of full neighbor averaging. Resolution 0.4 (lower to
+             avoid cluster explosion).
+Script: analysis/src/build_tissue/binsize_test_archr/compare_spatial_smoothing_methods.R
+
+SPATIAL COHERENCE RESULTS (fraction of spatial neighbors sharing same cluster)
+-------------------------------------------------------------------------------
+Tissue          Baseline   Alpha-Blend   Iterative
+lowseq_489      0.706      0.814         0.936
+lowseq_488B     0.545      0.655         0.892
+deepseq_488B    0.569      0.660         0.891
+deepseq_489     0.775      0.776         0.930
+
+Iterative wins on spatial contiguity in all 4 tissues by a large margin.
+
+MARKER GENE COUNTS (GeneScoreMatrix, Wilcoxon, FDR<=0.05 & Log2FC>=0.5)
+-------------------------------------------------------------------------
+Tissue          Baseline   Alpha-Blend   Iterative   N_clusters (B/AB/I)
+lowseq_489      2860       3661          3623        5 / 7 / 9
+lowseq_488B     2182       2014          1037        6 / 9 / 9
+deepseq_488B    977        759           556         6 / 9 / 10
+deepseq_489     2879       3040          3410        5 / 8 / 12
+
+Mean Log2FC is nearly identical across all methods in all tissues (~0.62-0.63).
+The drop in marker count for iterative in 488B tissues is likely due to
+smaller/imbalanced clusters reducing Wilcoxon test power, not loss of biology.
+
+CELL-TYPE IDENTITY COMPARISON (GeneScoreMatrix module scores)
+--------------------------------------------------------------
+Iterative finds new identity types not present in Alpha-Blend in all 4 tissues:
+- lowseq_489:   HER2+ tumor, DNA-repair-deficient tumor
+- lowseq_488B:  Endothelial, B cell
+- deepseq_488B: Helper/Regulatory T cell, Epithelial/Tumor (general)
+- deepseq_489:  DNA-repair-deficient tumor, B cell, Mast cell, Basal/myoepithelial,
+                Epithelial/Tumor (general)
+
+However, iterative also has MORE fragmentation (same identity recurring across
+multiple clusters) than alpha-blend in 3/4 tissues. This means new identity
+calls should be treated with caution — they may reflect smoothing-driven signal
+mixing rather than genuinely distinct cell populations.
+
+CAVEATS
+-------
+1. CIRCULAR VALIDATION: GeneScoreMatrix module scores were used both as the
+   clustering input and the identity validation. This is not independent
+   evidence that iterative finds more real biology.
+
+2. MARKER COUNTS ARE NOT RNA: GeneScoreMatrix scores are imputed gene activity
+   from chromatin accessibility — one inference layer removed from actual
+   expression. "Marker genes" here are regions of differential accessibility
+   near genes, not differentially expressed genes.
+
+3. MARKER COUNT DROP IN ITERATIVE: Likely a statistical power artifact.
+   More clusters with fewer cells each reduces Wilcoxon sensitivity.
+   Mean Log2FC being unchanged confirms the signal strength is the same.
+
+4. RESOLUTION ASYMMETRY: Iterative was run at resolution 0.4 vs 0.8 for the
+   others. Even so, it produces 9-12 clusters vs 5-9 for the others.
+   At resolution 0.8 iterative would likely over-fragment severely.
+
+5. 2-HOP SMOOTHING TRADES MOLECULAR FOR SPATIAL RESOLUTION: By averaging
+   neighbors' neighbors, iterative blurs fine-scale chromatin accessibility
+   differences between adjacent cells. This is appropriate for spatial domain
+   segmentation but may wash out subtle cell-type distinctions.
+
+RECOMMENDED USE PER METHOD
+---------------------------
+Iterative:   Use for spatial domain segmentation — identifying tissue regions,
+             tumor boundaries, stromal zones. Its high coherence (0.89-0.94)
+             means clusters = contiguous spatial territories.
+
+Alpha-Blend: Use for cell-type identification — which distinct cell types/
+             identities are present. It gains some spatial coherence with less
+             chromatin signal disturbance than iterative.
+
+Baseline:    Use as the reference for CNV calling and any analysis where
+             preserving the raw chromatin signal per cell is important.
+
+NEXT STEPS (NOT YET DONE)
+--------------------------
+To biologically validate which smoothing method is best, the recommended path
+is CNV profile consistency:
+- Run alleloscope on cluster assignments from each method
+- Compare intra-cluster CNV variance across methods
+- The method with more internally homogeneous CNV profiles per cluster is
+  more biologically meaningful
+- This simultaneously validates the smoothing method AND advances CNV calling
+
+H&E images are not available for these tissues, so spatial histology
+co-localization is not feasible as a validation approach.
+
+OUTPUT FILES IN THIS DIRECTORY
+-------------------------------
+{tissue}_5000bp_3method_comparison.pdf         — UMAPs + spatial scatter + marker heatmaps (3 pages)
+{tissue}_5000bp_method_confusion_heatmaps.pdf  — Row-normalized cluster reassignment matrices
+{tissue}_5000bp_3method_comparison.csv         — Metrics table (coherence, markers, LFC)
+{tissue}_5000bp_3method_comparison_summary.txt — Per-tissue text summary
+{tissue}_5000bp_3method_cluster_assignments.csv — Per-cell cluster labels for all 3 methods
+iterative_vs_alphablend_identity_comparison.txt — Cross-tissue cell-type identity analysis
+method_*_writeup.txt                           — Method description writeups

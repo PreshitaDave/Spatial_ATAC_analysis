@@ -6,7 +6,7 @@
 
 # --- I/O ---
 spaceranger_dir : /projectnb/paxlab/presh/projects/spatial_atac/Data/04_analysis/cnv/calicoST/lowseq_489/parsed_inputs
-snp_dir : None
+snp_dir : /projectnb/paxlab/presh/projects/spatial_atac/Data/04_analysis/cnv/calicoST/lowseq_489/parsed_inputs
 output_dir : /projectnb/paxlab/presh/projects/spatial_atac/Data/04_analysis/cnv/calicoST/lowseq_489/cna
 
 # Purity estimates from 3_run_purity.py — update path after purity run completes

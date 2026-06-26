@@ -6,7 +6,7 @@
 
 # --- I/O ---
 # spaceranger_dir and snp_dir are bypassed because parsed_inputs/ exists
-spaceranger_dir : None
+spaceranger_dir : /projectnb/paxlab/presh/projects/spatial_atac/Data/04_analysis/cnv/calicoST/lowseq_489/parsed_inputs
 snp_dir : None
 output_dir : /projectnb/paxlab/presh/projects/spatial_atac/Data/04_analysis/cnv/calicoST/lowseq_489/purity
 

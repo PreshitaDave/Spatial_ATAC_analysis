@@ -37,7 +37,12 @@ echo ""
 echo "--- Step 2: Building CalicoST parsed_inputs ---"
 echo "Start: $(date)"
 
-${PYTHON} 2_build_calicost_inputs.py "${TISSUE}" --snps-per-bin 200
+PARSED_INPUTS="${OUTPUT_ROOT}/parsed_inputs/table_bininfo.csv.gz"
+if [ -f "${PARSED_INPUTS}" ]; then
+    echo "parsed_inputs already exist — skipping step 2"
+else
+    ${PYTHON} 2_build_calicost_inputs.py "${TISSUE}" --snps-per-bin 200
+fi
 
 echo "Step 2 complete: $(date)"
 

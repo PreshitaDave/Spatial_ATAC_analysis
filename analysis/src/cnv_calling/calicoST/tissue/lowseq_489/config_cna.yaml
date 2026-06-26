@@ -5,7 +5,7 @@
 # tumorprop_file must exist (output of 3_run_purity.py)
 
 # --- I/O ---
-spaceranger_dir : None
+spaceranger_dir : /projectnb/paxlab/presh/projects/spatial_atac/Data/04_analysis/cnv/calicoST/lowseq_489/parsed_inputs
 snp_dir : None
 output_dir : /projectnb/paxlab/presh/projects/spatial_atac/Data/04_analysis/cnv/calicoST/lowseq_489/cna
 

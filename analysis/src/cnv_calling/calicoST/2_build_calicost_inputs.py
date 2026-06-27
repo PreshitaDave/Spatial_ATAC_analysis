@@ -526,6 +526,9 @@ def main():
     # ============================================================
     # Build table_bininfo
     # ============================================================
+    # INCLUDED_GENES must match exp_counts column names (bin_0, bin_1, ...) so that
+    # CalicoST's filter_de_genes_tri can correctly map ATAC bin counts. Real gene names
+    # are preserved in GENE_NAMES for downstream annotation.
     table_bininfo = pd.DataFrame({
         "bin_id":              bin_df["bin_id"].values,
         "CHR":                 bin_df["CHR"].values,
@@ -533,7 +536,8 @@ def main():
         "START":               bin_df["START"].values,
         "END":                 bin_df["END"].values,
         "LOG_PHASE_TRANSITION": log_trans,
-        "INCLUDED_GENES":      bin_df["INCLUDED_GENES"].values,
+        "INCLUDED_GENES":      [f"bin_{i}" for i in bin_df["bin_id"].values],
+        "GENE_NAMES":          bin_df["INCLUDED_GENES"].values,
         "INCLUDED_SNP_IDS":    bin_df["INCLUDED_SNP_IDS"].values,
         "NORMAL_COUNT":        normal_count,
         "N_SNPS":              bin_df["N_SNPS"].values,
@@ -613,8 +617,11 @@ def main():
 
     # Also save gene_snp_info (needed by load_tables_to_matrices if called)
     # Build minimal df_gene_snp from bin_df
+    # gene column must match exp_counts column names (bin_0, bin_1, ...) so that
+    # genesnp_to_bininfo → filter_de_genes_tri correctly maps ATAC bin counts.
     df_gene_snp_rows = []
     for _, brow in bin_df.iterrows():
+        bin_col_name = f"bin_{int(brow['bin_id'])}"
         for sid in brow["snp_ids"]:
             df_gene_snp_rows.append({
                 "bin_id": brow["bin_id"],
@@ -622,7 +629,7 @@ def main():
                 "START":  brow["START"],
                 "END":    brow["END"],
                 "snp_id": sid,
-                "gene":   None,
+                "gene":   bin_col_name,
                 "block_id": None,
             })
     df_gene_snp = pd.DataFrame(df_gene_snp_rows)

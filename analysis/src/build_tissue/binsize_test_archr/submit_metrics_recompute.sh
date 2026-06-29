@@ -70,7 +70,7 @@ echo "[$(date '+%F %T')] [start] Recomputing metrics: ${tissue} ${tilesize}bp bi
 
 cd "\${PROJECT_ROOT}"
 
-Rscript "\${SCRIPT_DIR}/create_arrow_variants.R" "${tissue}" "${tilesize}" "${binarize}"
+Rscript "\${SCRIPT_DIR}/1_create_arrow_variants.R" "${tissue}" "${tilesize}" "${binarize}"
 
 exit_code=\$?
 if [[ \${exit_code} -eq 0 ]]; then
@@ -130,7 +130,7 @@ echo "[$(date '+%F %T')] [start] Running sparsity comparison aggregation"
 
 cd "\${PROJECT_ROOT}"
 
-Rscript "\${SCRIPT_DIR}/compare_arrow_sparsity.R"
+Rscript "\${SCRIPT_DIR}/2_compare_arrow_sparsity.R"
 
 exit_code=\$?
 if [[ \${exit_code} -eq 0 ]]; then
@@ -142,7 +142,7 @@ fi
 AGGREGATION_HEREDOC
 
 AGGREGATION_JOB_ID=$(qsub "${AGGREGATION_SCRIPT}" 2>&1 | awk '{print $3}')
-echo "[aggregation] Job ${AGGREGATION_JOB_ID}: compare_arrow_sparsity (depends on all metrics jobs)"
+echo "[aggregation] Job ${AGGREGATION_JOB_ID}: 2_compare_arrow_sparsity (depends on all metrics jobs)"
 
 echo ""
 echo "Monitor with:"

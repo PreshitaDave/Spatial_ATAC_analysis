@@ -1,0 +1,31 @@
+===== 3-Method Spatial Smoothing Comparison: lowseq_489 =====
+
+Tissue: lowseq_489
+Cells (total / with spatial coords): 4178 / 4178
+
+METHOD COMPARISON
+=================
+
+                               Method N_Clusters Total_Markers Mean_Log2FC
+1             Baseline (No Smoothing)          5          2860   0.6291519
+2 Alpha-Blend (k=6, 1-hop, alpha=0.5)          7          3661   0.6368328
+3   Iterative (k=8, 2-hop, self-incl)          9          3623   0.6355403
+  Spatial_Coherence
+1         0.7064385
+2         0.8136269
+3         0.9362534
+
+
+INTERPRETATION
+==============
+Spatial_Coherence: fraction of spatial neighbors with same cluster label (higher = more contiguous)
+Total_Markers: count of significant markers (FDR<=0.05, Log2FC>=0.5) across all clusters
+Mean_Log2FC: mean absolute Log2 fold-change of markers (higher = stronger separation)
+N_Clusters: number of clusters detected at resolution 0.8
+
+
+METHOD CLUSTER AGREEMENT (best-match overlap %, cluster IDs are arbitrary per-run)
+==============================================================================
+Baseline    vs Alpha-Blend: 73.9%
+Baseline    vs Iterative:   50.2%
+Alpha-Blend vs Iterative:   60.9%

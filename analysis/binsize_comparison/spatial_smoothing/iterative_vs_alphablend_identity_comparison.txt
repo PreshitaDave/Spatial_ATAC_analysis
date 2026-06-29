@@ -1,0 +1,55 @@
+=====================================================================
+ITERATIVE vs ALPHA-BLEND: cluster IDENTITY comparison (not raw count)
+=====================================================================
+
+Question: does Iterative finding more clusters (9-11 vs 7) mean genuine
+extra biological resolution, or is it the same handful of cell types
+getting split into more spatial sub-pieces? Answer: compare the SET of
+distinct module-score-assigned identities, not the cluster count.
+
+--- lowseq_489 ---
+Alpha-Blend: 7 clusters -> 6 distinct identities (1 clusters share a repeated identity = spatial fragmentation)
+Iterative:   9 clusters -> 8 distinct identities (1 clusters share a repeated identity = spatial fragmentation)
+Iterative finds 2 identity type(s) NOT present in Alpha-Blend: HER2+ tumor; DNA-repair-deficient tumor
+Mean assignment confidence (gap to 2nd place): Alpha-Blend=0.438, Iterative=0.356
+
+--- lowseq_488B ---
+Alpha-Blend: 9 clusters -> 7 distinct identities (1 clusters share a repeated identity = spatial fragmentation)
+Iterative:   9 clusters -> 7 distinct identities (2 clusters share a repeated identity = spatial fragmentation)
+Iterative finds 2 identity type(s) NOT present in Alpha-Blend: Endothelial; B cell
+Mean assignment confidence (gap to 2nd place): Alpha-Blend=0.274, Iterative=0.288
+
+--- deepseq_488B ---
+Alpha-Blend: 9 clusters -> 7 distinct identities (2 clusters share a repeated identity = spatial fragmentation)
+Iterative:   10 clusters -> 7 distinct identities (3 clusters share a repeated identity = spatial fragmentation)
+Iterative finds 2 identity type(s) NOT present in Alpha-Blend: Helper/Regulatory T cell; Epithelial/Tumor (general)
+Mean assignment confidence (gap to 2nd place): Alpha-Blend=0.268, Iterative=0.328
+
+--- deepseq_489 ---
+Alpha-Blend: 8 clusters -> 5 distinct identities (3 clusters share a repeated identity = spatial fragmentation)
+Iterative:   12 clusters -> 8 distinct identities (4 clusters share a repeated identity = spatial fragmentation)
+Iterative finds 5 identity type(s) NOT present in Alpha-Blend: DNA-repair-deficient tumor; B cell; Mast cell; Basal/myoepithelial; Epithelial/Tumor (general)
+Mean assignment confidence (gap to 2nd place): Alpha-Blend=0.269, Iterative=0.202
+
+=====================================================================
+OVERALL INTERPRETATION
+=====================================================================
+Iterative finds new identity types in 4/4 tissues.
+Iterative has MORE clusters sharing a repeated identity (fragmentation) than
+Alpha-Blend in 3/4 tissues (Iterative fragmented clusters: 1,2,3,4; Alpha-Blend: 1,1,2,3)
+
+Taken together with the spatial-coherence result (Iterative wins every
+tissue, 0.89-0.93 vs 0.65-0.81): Iterative is NOT simply finding more real
+cell types end-to-end. It is mostly subdividing biology that Alpha-Blend
+already resolves into more spatially homogeneous pieces, with the same
+identity recurring across multiple Iterative clusters in most tissues.
+Where Iterative DOES surface genuinely new identity calls, treat them with
+caution: GeneScoreMatrix module-score confidence gaps are modest in both
+methods (means below ~0.5 in most tissues), so a low-confidence "new"
+identity may reflect smoothing-driven signal mixing rather than a real
+distinct cell population. Recommendation: use Iterative for spatial-domain
+segmentation (its intended purpose -- 2-hop smoothing trades molecular
+resolution for spatial contiguity), and Alpha-Blend (or Baseline) when the
+question is which distinct cell types/identities are present, since it
+disturbs the underlying chromatin-accessibility signal the least while
+still gaining some spatial coherence.

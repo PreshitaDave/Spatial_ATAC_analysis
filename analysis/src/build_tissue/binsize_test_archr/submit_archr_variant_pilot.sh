@@ -57,7 +57,7 @@ for tissue in "${TISSUES[@]}"; do
         -e "$ERR_FILE" \
         -cwd \
         -b y \
-        "Rscript $SCRIPT_DIR/build_archr_variant_project.R $tissue $tilesize $binarize" 2>&1 | awk '{print $3}')
+        "Rscript $SCRIPT_DIR/3_build_archr_variant_project.R $tissue $tilesize $binarize" 2>&1 | awk '{print $3}')
 
       JOB_IDS+=("$JOB_ID")
       log_msg "  Submitted with job ID: $JOB_ID"
@@ -90,7 +90,7 @@ AGG_JOB_ID=$(qsub -N "$AGG_JOB_NAME" \
   -cwd \
   -hold_jid "$HOLD_STR" \
   -b y \
-  "Rscript $SCRIPT_DIR/compare_archr_variant_umap.R lowseq_489" 2>&1 | awk '{print $3}')
+  "Rscript $SCRIPT_DIR/4_compare_archr_variant_umap.R lowseq_489" 2>&1 | awk '{print $3}')
 
 log_msg "Submitted aggregation job with ID: $AGG_JOB_ID"
 

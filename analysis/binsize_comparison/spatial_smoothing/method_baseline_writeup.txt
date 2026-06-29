@@ -1,0 +1,46 @@
+=====================================================================
+METHOD: Baseline (No Smoothing)
+=====================================================================
+
+WHAT IT IS
+----------
+The unmodified ArchR IterativeLSI embedding, clustered and visualized
+exactly as in the main binsize-comparison pipeline (5000bp tiles,
+binarize=FALSE). No spatial information is used at this stage — this
+is the reference point every smoothing method is judged against.
+
+PARAMETERS
+----------
+- Input: IterativeLSI (ArchR default, 5000bp/binarizeFALSE config)
+- Clustering: Seurat method, resolution = 0.8
+- UMAP: nNeighbors = 30, minDist = 0.5, metric = cosine
+- Reused directly from the on-disk ArchR project (not recomputed) so
+  these numbers match analysis/binsize_comparison/archr_umap_cluster_comparison.pdf
+  exactly.
+
+RESULTS ACROSS ALL 4 TISSUES (corrected, post bug-fix)
+-------------------------------------------------------
+Tissue          Clusters  Markers  Mean|Log2FC|  Spatial Coherence
+lowseq_489         5        2860      0.629           0.706
+lowseq_488B        6        2182      0.627           0.545
+deepseq_488B       6         977      0.597           0.569
+deepseq_489        5        2879      0.620           0.775
+
+INTERPRETATION
+--------------
+Spatial coherence (fraction of a spot's k=6 nearest physical neighbors
+sharing its cluster label) ranges 0.55-0.78 at baseline — clusters are
+already somewhat spatially contiguous (tissue biology is spatially
+organized), but far from perfectly so, since clustering uses only
+chromatin accessibility, with no spatial term. This is the expected
+floor: any spatial-aware method should score higher than this on
+coherence. Marker counts and log2FC here are the highest-confidence
+numbers in the whole comparison, since no smoothing/blurring has been
+applied to the underlying signal — a cluster differs from another
+because the cells in it are molecularly different, not because nearby
+spots were averaged together.
+
+This method also has the lowest cluster counts (5-6) compared to
+Alpha-Blend (7-9) and Iterative (9-11) — smoothing tends to fragment
+the data into spatial sub-domains within what were previously single
+clusters, since it accentuates small spatial gradients.

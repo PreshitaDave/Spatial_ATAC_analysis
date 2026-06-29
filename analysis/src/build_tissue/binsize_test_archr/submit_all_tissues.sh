@@ -49,7 +49,7 @@ for tissue in "${TISSUES[@]}"; do
       -e "$ERR_FILE" \
       -cwd \
       -b y \
-      "Rscript $SCRIPT_DIR/model_spot_count_distributions_simplified.R $tissue $tilesize" 2>&1 | tail -1
+      "Rscript $SCRIPT_DIR/8_model_spot_count_distributions.R $tissue $tilesize" 2>&1 | tail -1
 
     ((dist_job_count++))
     log_msg "  Submitted: $JOB_NAME"
@@ -72,7 +72,7 @@ for tissue in "${TISSUES[@]}"; do
         -e "$ERR_FILE" \
         -cwd \
         -b y \
-        "Rscript $SCRIPT_DIR/build_archr_variant_project.R $tissue $tilesize $binarize" 2>&1 | tail -1
+        "Rscript $SCRIPT_DIR/3_build_archr_variant_project.R $tissue $tilesize $binarize" 2>&1 | tail -1
 
       ((umap_job_count++))
       log_msg "  Submitted: $JOB_NAME"

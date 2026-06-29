@@ -1,0 +1,26 @@
+"Method","Cluster","N_cells","Assigned_Identity","Module_Score","Second_Identity","Second_Module_Score","Confidence_Gap"
+"Baseline","C1",1391,"Dendritic cell",0.483,"Basal/myoepithelial",0.322,0.161
+"Baseline","C2",637,"HER2+ tumor",1.219,"Epithelial/Tumor (general)",1.14,0.079
+"Baseline","C3",192,"Plasma cell",1.186,"Cytotoxic T cell",1.073,0.113
+"Baseline","C4",925,"T cell (general)",1.436,"B cell",1.261,0.175
+"Baseline","C5",842,"Mast cell",0.599,"Dendritic cell",0.535,0.064
+"Alpha-Blend","C1",620,"HER2+ tumor",1.545,"Epithelial/Tumor (general)",1.414,0.131
+"Alpha-Blend","C2",129,"Dendritic cell",1.226,"Luminal hormone-receptor+ tumor",0.408,0.817
+"Alpha-Blend","C3",708,"HER2+ tumor",0.898,"Epithelial/Tumor (general)",0.598,0.3
+"Alpha-Blend","C4",601,"T cell (general)",0.677,"Epithelial/Tumor (general)",0.37,0.307
+"Alpha-Blend","C5",211,"Plasma cell",1.446,"Cytotoxic T cell",1.261,0.185
+"Alpha-Blend","C6",764,"T cell (general)",1.505,"B cell",1.475,0.03
+"Alpha-Blend","C7",546,"Dendritic cell",0.808,"B cell",0.694,0.113
+"Alpha-Blend","C8",408,"Cytotoxic T cell",1.362,"Mast cell",1.095,0.267
+"Iterative","C1",215,"DNA-repair-deficient tumor",1.265,"Plasma cell",1.242,0.023
+"Iterative","C2",268,"B cell",1.086,"DNA-repair-deficient tumor",0.993,0.094
+"Iterative","C3",319,"T cell (general)",1.46,"B cell",1.268,0.192
+"Iterative","C4",312,"DNA-repair-deficient tumor",1.399,"B cell",0.885,0.514
+"Iterative","C5",373,"Mast cell",0.828,"Fibroblast/CAF",0.81,0.019
+"Iterative","C6",286,"Mast cell",0.841,"Cytotoxic T cell",0.818,0.023
+"Iterative","C7",125,"Dendritic cell",1.524,"Luminal hormone-receptor+ tumor",0.599,0.925
+"Iterative","C8",14,"Basal/myoepithelial",0.043,"Macrophage/Myeloid",0.012,0.031
+"Iterative","C9",299,"T cell (general)",0.642,"Cytotoxic T cell",0.578,0.064
+"Iterative","C10",629,"Epithelial/Tumor (general)",1.717,"HER2+ tumor",1.504,0.213
+"Iterative","C11",458,"HER2+ tumor",1.093,"Epithelial/Tumor (general)",0.778,0.315
+"Iterative","C12",689,"HER2+ tumor",0.693,"Epithelial/Tumor (general)",0.687,0.006

@@ -1,0 +1,148 @@
+snapatac2_pipeline.py — Overview, Pros, and Cons
+=======================================================
+Script by: Penelope (shared June 2026)
+Location:  analysis/binsize_comparison/spatial_smoothing/src/snapatac2_pipeline.py
+Original:  analysis/spatial_smoothing/Penelope_src/snapatac2_pipeline.py
+
+BACKGROUND
+----------
+This is Penelope's SnapATAC2-based spatial ATAC-seq pipeline for PanNET sample
+D02475. It implements a TWO-STAGE strategy ("post-clustering spatial smoothing"),
+contrasting with our ArchR pipeline which applies spatial smoothing to the
+embedding BEFORE clustering ("pre-embedding spatial integration").
+
+  Pre-embedding (our ArchR alpha-blend/iterative methods):
+    spatial averaging of LSI → KNN → Leiden
+    Geography influences cluster assignments from the start.
+
+  Post-clustering (Penelope's SnapATAC2 approach):
+    spectral embedding → KNN → Leiden (chromatin-only)
+    → spatial majority-vote relabeling
+    Biology drives clusters; geography refines spot assignments afterward.
+
+
+WHAT THE SCRIPT DOES (8 steps)
+-------------------------------
+
+Step 1: Import fragments
+  Reads the chromap fragment file, filters to in-tissue barcodes only
+  (whitelist from tissue_positions_list.csv), and requires MIN_FRAGS=1000
+  fragments per spot. Saves AnnData checkpoint.
+
+Step 2: QC filtering
+  Computes TSS enrichment score (TSSE) per spot. Spots with TSSE < 4 are
+  removed. Saves fragment size distribution and TSSE scatter plots (PNG).
+
+Step 3: Tile matrix + chromatin-only spectral embedding
+  Adds a genome-wide tile matrix, selects 50,000 most variable features,
+  runs SnapATAC2 spectral embedding (N_COMPS=30). NO spatial coordinates
+  are injected here — embedding reflects pure chromatin accessibility.
+  Computes UMAP. Saves checkpoint.
+
+Step 4: KNN + Leiden clustering (Stage 1 — biology first)
+  Builds KNN graph on spectral embedding, runs Leiden at LEIDEN_RES=1.0.
+  Result: clusters that reflect chromatin state, not tissue geography.
+  Saves checkpoint.
+
+Step 4b: Spatial majority-vote smoothing (Stage 2 — new in v3)
+  For each spot, finds its SMOOTH_K=15 nearest spatial neighbors using pixel
+  coordinates (KD-tree on pxl_col/pxl_row from tissue_positions_list.csv).
+  Assigns the majority cluster label among those spatial neighbors.
+  Ties go to the spot's original label.
+  Stores: obs["leiden"] = original chromatin cluster
+          obs["leiden_smooth"] = spatially smoothed cluster
+  Reports how many spots changed label (% relabeled).
+
+Step 4c: Per-cluster fragment outlier removal
+  For each smoothed cluster, removes spots whose fragment count exceeds
+  PER_CLUSTER_MAX_MULTIPLIER (3.0) × the cluster median. More principled
+  than a global cutoff — avoids discarding genuine high-coverage tumor spots.
+
+Step 5: Spatial plots
+  Generates spatial scatter plots (Plotly) for:
+  - Chromatin-only cluster labels (pre-smoothing, for comparison)
+  - Smoothed cluster labels (primary output)
+  - Per-cluster highlight plots (one cluster highlighted, rest gray)
+  - Fragment count and TSSE spatial maps
+
+Step 6: Gene activity matrix + differential analysis
+  Builds a gene-level activity matrix (read depth near TSS) with scanpy.
+  Removes mitochondrial genes before normalization (D02475 is ~60-72% MT).
+  Applies MAGIC imputation (approximate solver) to reduce dropout.
+  Runs Wilcoxon rank-sum test per cluster. Saves DE result CSVs.
+  Generates dot plot for PanNET marker genes and cluster correlation matrix.
+
+Step 7: Export metadata and per-cluster barcodes for Signac
+  Writes cell_metadata.csv (barcode, leiden, leiden_smooth, spatial coords,
+  TSSE, n_fragment). Writes per-cluster barcode TXT files for Signac
+  pseudo-bulk peak calling using smoothed labels.
+
+Step 8: Per-cluster fragment BED files for genome browser
+  Splits the full fragment file into one BED per cluster (smoothed labels),
+  bgzips and tabix-indexes each for direct loading in IGV or UCSC.
+
+
+PROS
+----
+1. Biology-first clusters: Leiden sees only chromatin signal, not geography.
+   Avoids the v2 problem where spatial-aware KNN caused clusters to tile the
+   tissue geographically instead of finding chromatin communities.
+
+2. Both labels preserved: obs["leiden"] and obs["leiden_smooth"] are kept,
+   making it easy to compare pre- and post-smoothing assignments directly.
+
+3. Checkpoint-based and resumable: each step writes an h5ad file. Rerunning
+   skips completed steps. Detects N_COMPS/LEIDEN_RES parameter changes and
+   automatically clears stale embedding/clustering checkpoints.
+
+4. Per-cluster outlier removal is more principled than a global fragment
+   cutoff — it removes technical artifacts within each cluster rather than
+   penalizing biologically dense tissue compartments.
+
+5. Comprehensive downstream: gene activity → MAGIC → DE → dot plot →
+   cluster correlation matrix → Signac-ready barcodes → browser BEDs, all
+   in a single script.
+
+6. SMOOTH_K is an independent, interpretable knob (0 = no smoothing, higher
+   values = stronger spatial coherence) that can be tuned without rerunning
+   the expensive spectral embedding.
+
+
+CONS
+----
+1. Two separate tuning parameters (LEIDEN_RES and SMOOTH_K) with independent
+   effects. Strong SMOOTH_K can blur fine boundaries between adjacent clones,
+   producing label artifacts at tissue region edges.
+
+2. Hard majority-vote smoothing: a spot is assigned a single deterministic
+   label with no confidence measure. Does not capture uncertainty at cluster
+   boundaries the way a probabilistic model would.
+
+3. Heavier dependency stack: requires SnapATAC2, scanpy, scipy, MAGIC
+   (magic-impute), plotly, and bgzip/tabix. More complex to install and
+   maintain than our ArchR-based pipeline.
+
+4. Paths are hardcoded for D02475 PanNET (FRAGMENT_FILE, SPATIAL_CSV,
+   OUTPUT_DIR). To run on our breast cancer samples, FRAGMENT_FILE and
+   SPATIAL_CSV must be updated. No CLI argument support.
+
+5. Gene activity matrix is noisy at low sequencing depth (signal is near-TSS
+   read density, not gene expression). MAGIC helps but adds runtime and
+   requires approximate-solver tuning for large datasets.
+
+6. No integration with ArchR: outputs (barcodes, metadata) are compatible
+   with Signac but not directly importable into an existing ArchR project
+   without re-processing.
+
+
+COMPARISON WITH OUR METHODS
+----------------------------
+Method              | Approach                        | Smoothing stage
+--------------------|----------------------------------|-------------------
+Baseline (ArchR)    | No smoothing                    | —
+Alpha-blend (ArchR) | k=6, 1-hop, alpha=0.5 blend     | Pre-embedding
+Iterative (ArchR)   | k=8, 2-hop, self-inclusive      | Pre-embedding
+Penelope (SnapATAC2)| Leiden then spatial majority    | Post-clustering
+
+Next step: once H&E slides arrive from UPMC, overlay each pipeline's spatial
+cluster map on the H&E to assess which best recapitulates tissue architecture.

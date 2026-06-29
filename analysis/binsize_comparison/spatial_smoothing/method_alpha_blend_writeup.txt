@@ -1,0 +1,58 @@
+=====================================================================
+METHOD: Alpha-Blend (k=6, 1-hop, alpha=0.5)
+=====================================================================
+
+WHAT IT IS
+----------
+Each spot's LSI embedding is replaced by a 50/50 blend of its own
+value and the mean of its 6 nearest *physical* (spatial) neighbors'
+embeddings. A single smoothing pass. This is a mild, conservative
+spatial-smoothing approach: every spot keeps half its own signal.
+
+ALGORITHM
+---------
+1. Find each spot's 6 nearest neighbors by (x_spatial, y_spatial)
+   (FNN::get.knn, which excludes the spot itself).
+2. Build a row-normalized averaging matrix W (each row: 1/6 over the
+   6 neighbors, 0 elsewhere).
+3. New embedding Z' = 0.5 * Z + 0.5 * (W %*% Z)  — one pass, no
+   iteration.
+4. Re-cluster (Seurat, resolution 0.8) and re-run UMAP on Z'.
+
+PARAMETERS
+----------
+- k = 6 spatial neighbors (self excluded from the averaging window,
+  but retained via the 0.5 weight on the original value)
+- alpha = 0.5 (blend weight)
+- 1 smoothing pass (no iteration)
+- Clustering: Seurat, resolution = 0.8 (same as baseline)
+
+RESULTS ACROSS ALL 4 TISSUES (corrected, post bug-fix)
+-------------------------------------------------------
+Tissue          Clusters  Markers  Mean|Log2FC|  Spatial Coherence
+lowseq_489         7        3529      0.637           0.814
+lowseq_488B        9        1825      0.632           0.654
+deepseq_488B       9         737      0.590           0.644
+deepseq_489        7        2838      0.623           0.790
+
+INTERPRETATION
+--------------
+Spatial coherence improves over baseline in every tissue (e.g.
+lowseq_489: 0.706 -> 0.814; deepseq_488B: 0.569 -> 0.644), confirming
+the blending does what it's designed to do — pull neighboring spots'
+embeddings closer together, making cluster assignment more spatially
+contiguous. It lands in the middle of the three methods on every
+tissue: more spatially coherent than Baseline, less than Iterative.
+
+Marker behavior is tissue-dependent: lowseq tissues gain markers
+(more, smaller spatial sub-clusters get resolved as molecularly
+distinct), while deepseq tissues lose some marker count relative to
+baseline (e.g. deepseq_488B: 977 -> 737) without losing effect size
+(mean log2FC stays ~0.59-0.64) — smoothing is spreading the same
+signal over more clusters rather than degrading it.
+
+Because it only blends 50% and does a single pass over only the
+immediate 6 neighbors, this is the most conservative of the two
+smoothing methods — a reasonable default when coherence gains are
+wanted but distortion of the underlying molecular signal must be kept
+minimal.

@@ -1,0 +1,31 @@
+===== 3-Method Spatial Smoothing Comparison: deepseq_489 =====
+
+Tissue: deepseq_489
+Cells (total / with spatial coords): 3987 / 3987
+
+METHOD COMPARISON
+=================
+
+                               Method N_Clusters Total_Markers Mean_Log2FC
+1             Baseline (No Smoothing)          5          2879   0.6202386
+2 Alpha-Blend (k=6, 1-hop, alpha=0.5)          8          3040   0.6188013
+3   Iterative (k=8, 2-hop, self-incl)         12          3410   0.6200647
+  Spatial_Coherence
+1         0.7750188
+2         0.7763147
+3         0.9297300
+
+
+INTERPRETATION
+==============
+Spatial_Coherence: fraction of spatial neighbors with same cluster label (higher = more contiguous)
+Total_Markers: count of significant markers (FDR<=0.05, Log2FC>=0.5) across all clusters
+Mean_Log2FC: mean absolute Log2 fold-change of markers (higher = stronger separation)
+N_Clusters: number of clusters detected at resolution 0.8
+
+
+METHOD CLUSTER AGREEMENT (best-match overlap %, cluster IDs are arbitrary per-run)
+==============================================================================
+Baseline    vs Alpha-Blend: 64.1%
+Baseline    vs Iterative:   46.7%
+Alpha-Blend vs Iterative:   53.7%

@@ -9,7 +9,7 @@ set -u
 
 PROJECT_ROOT="/projectnb/paxlab/presh/projects/spatial_atac"
 SCRIPT_DIR="${PROJECT_ROOT}/analysis/src/build_tissue/binsize_test_archr"
-SCRIPT="${SCRIPT_DIR}/add_spatial_smoothing_lsi.R"
+SCRIPT="${SCRIPT_DIR}/6_add_spatial_smoothing_lsi.R"
 
 # Array of tissues
 TISSUES=("lowseq_489" "lowseq_488B" "deepseq_488B" "deepseq_489")

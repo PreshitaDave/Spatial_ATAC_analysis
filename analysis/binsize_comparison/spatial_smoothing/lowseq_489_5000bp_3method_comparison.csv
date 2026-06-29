@@ -1,0 +1,4 @@
+"Method","N_Clusters","Total_Markers","Mean_Log2FC","Spatial_Coherence"
+"Baseline (No Smoothing)",5,2860,0.629151904248993,0.706438487314505
+"Alpha-Blend (k=6, 1-hop, alpha=0.5)",7,3661,0.636832849708377,0.813626934737514
+"Iterative (k=8, 2-hop, self-incl)",9,3623,0.635540282172492,0.936253390777086

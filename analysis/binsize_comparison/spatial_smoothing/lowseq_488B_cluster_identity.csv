@@ -1,0 +1,25 @@
+"Method","Cluster","N_cells","Assigned_Identity","Module_Score","Second_Identity","Second_Module_Score","Confidence_Gap"
+"Baseline","C1",2414,"HER2+ tumor",0.569,"Epithelial/Tumor (general)",0.465,0.104
+"Baseline","C2",3134,"Epithelial/Tumor (general)",1.174,"HER2+ tumor",1.068,0.106
+"Baseline","C3",1018,"HER2+ tumor",1.003,"Epithelial/Tumor (general)",0.873,0.13
+"Baseline","C4",2171,"Fibroblast/CAF",0.966,"Helper/Regulatory T cell",0.496,0.47
+"Baseline","C5",461,"T cell (general)",1.414,"B cell",1.224,0.191
+"Baseline","C6",2183,"Plasma cell",1.128,"DNA-repair-deficient tumor",1.007,0.121
+"Alpha-Blend","C1",1931,"HER2+ tumor",0.967,"Cytotoxic T cell",0.797,0.17
+"Alpha-Blend","C2",1107,"HER2+ tumor",0.353,"Epithelial/Tumor (general)",0.313,0.04
+"Alpha-Blend","C3",518,"Dendritic cell",1.331,"Mast cell",0.717,0.615
+"Alpha-Blend","C4",1835,"HER2+ tumor",0.938,"Dendritic cell",0.914,0.024
+"Alpha-Blend","C5",1147,"Epithelial/Tumor (general)",0.984,"HER2+ tumor",0.97,0.014
+"Alpha-Blend","C6",466,"T cell (general)",1.79,"Plasma cell",1.006,0.784
+"Alpha-Blend","C7",2001,"Plasma cell",1.671,"B cell",1.174,0.497
+"Alpha-Blend","C8",2280,"Cytotoxic T cell",0.961,"B cell",0.655,0.305
+"Alpha-Blend","C9",96,"Fibroblast/CAF",1.473,"Helper/Regulatory T cell",1.457,0.016
+"Iterative","C1",1786,"HER2+ tumor",0.898,"Basal/myoepithelial",0.621,0.277
+"Iterative","C2",1320,"Epithelial/Tumor (general)",1.108,"Basal/myoepithelial",0.817,0.291
+"Iterative","C3",1331,"Epithelial/Tumor (general)",0.934,"Dendritic cell",0.774,0.159
+"Iterative","C4",1080,"Dendritic cell",1.23,"Mast cell",1.081,0.149
+"Iterative","C5",615,"Endothelial",0.909,"HER2+ tumor",0.447,0.462
+"Iterative","C6",990,"Dendritic cell",0.9,"Fibroblast/CAF",0.775,0.126
+"Iterative","C7",2720,"Cytotoxic T cell",1.594,"Proliferating",0.787,0.807
+"Iterative","C8",1096,"B cell",1.741,"T cell (general)",1.727,0.014
+"Iterative","C9",443,"Fibroblast/CAF",1.656,"Plasma cell",1.349,0.307

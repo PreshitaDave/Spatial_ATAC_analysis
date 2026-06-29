@@ -49,7 +49,7 @@ for tilesize in "${TILESIZES[@]}"; do
     -e "$ERR_FILE" \
     -cwd \
     -b y \
-    "Rscript $SCRIPT_DIR/model_spot_count_distributions_simplified.R $TISSUE $tilesize" 2>&1 | tail -1
+    "Rscript $SCRIPT_DIR/8_model_spot_count_distributions.R $TISSUE $tilesize" 2>&1 | tail -1
 
   log_msg "  Job submitted for $TISSUE $tilesize bp"
 done

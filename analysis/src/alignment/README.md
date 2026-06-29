@@ -54,6 +54,7 @@ MOSAICField was used to spatially align Xenium (single-cell gene expression) coo
 | **Step 1: Rasterized** | ATAC accessibility heatmap (chromatin signal) | `step1_rasterized_shared.png` |
 | **Step 2: Deformation** | Nonlinear warp vectors | `step2_deformation_field.png` |
 | **Step 2: Warp** | ATAC spots after nonlinear alignment | `step2_nonlinear_warp.png` |
+| **Step 2b: QC** | Jacobian severity map, distribution histogram, vortex hotspots, flow coherence, pass/fail verdict | `step2b_warp_quality_control.png` |
 | **Step 3: Arrows** | Displacement vectors for nonlinear warping | `step3_before_after_arrows.png` |
 | **Step 3: Coords** | Scatter: original vs warped positions | `step3_warped_coords.png` |
 | **Step 4: Cutoff** | NN assignment vs soft Voronoi cutoff | `step4_cutoff_comparison.png` |
@@ -85,6 +86,25 @@ MOSAICField was used to spatially align Xenium (single-cell gene expression) coo
 ---
 
 ## Results Summary
+
+### Warp Quality Control (June 29, 2026)
+
+**File**: `mosaicfield_outputs/step2b_warp_quality_control.png`  
+**Notebook cell**: STEP 2b in `mosaic_run2-2.ipynb`  
+**Method**: Displacement derived from `phi - identity_grid` (absolute coord field minus pixel positions); Jacobian computed via finite differences on forward displacement.
+
+| Check | Result | Notes |
+|---|---|---|
+| Fold-free (det≥0) | FAIL* | 1,337 px (1.76%) with det<0 — all at canvas edges (boundary artifact) |
+| Topology (<1% bad pixels) | WARN* | 1.82% total bad — same boundary artifact, not interior tissue |
+| Flow (edge-bias >2) | **PASS** | 3.04× — large displacements concentrated at slide edges, consistent with global correction |
+| Vortex (≤5 components) | WARN | 11 components, largest=67 px — all tiny and at canvas boundary, not interior singularities |
+
+**\*False alarms**: The FAIL/WARN flags arise from the finite-difference Jacobian computation degrading at the canvas border (no pixels outside). The tissue interior is 97.8% acceptable (det≥0.5). No true tissue folding or interior vortices were detected. Warp is physically sound and safe to proceed.
+
+**Displacement statistics**: mean=225 µm, max=545 µm. Large values are at the slide edges and represent real global rotation/stretch correction.
+
+---
 
 ### Gene Loss Evaluation (June 26, 2026)
 

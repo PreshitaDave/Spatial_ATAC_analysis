@@ -8,12 +8,24 @@
 #$ -j y
 #$ -o analysis/qsub_logs/build_tissue/archR_qc_cluster_$JOB_ID.log
 
-set -euo pipefail
+set -eo pipefail  # Don't use -u yet; we'll set it after sourcing profile
 
 echo "[$(date +'%F %T')] [SETUP] Job ID: $JOB_ID"
 echo "[$(date +'%F %T')] [SETUP] Hostname: $(hostname)"
 echo "[$(date +'%F %T')] [SETUP] Working directory: $PWD"
 echo "[$(date +'%F %T')] [SETUP] Available cores: $NSLOTS"
+
+# Initialize module environment (required on SGE systems)
+echo "[$(date +'%F %T')] [MODULE] Initializing module environment..."
+# Source profile files with -u disabled (they may reference unbound variables)
+set +u
+for profile_file in /etc/profile /etc/profile.d/modules.sh /usr/share/modules/init/bash; do
+  if [[ -f "$profile_file" ]]; then
+    . "$profile_file" 2>/dev/null || true
+    break
+  fi
+done
+set -u  # Re-enable strict mode
 
 # Load required modules
 echo "[$(date +'%F %T')] [MODULE] Loading R module..."
@@ -42,7 +54,7 @@ done
 # Create output directories
 echo "[$(date +'%F %T')] [SETUP] Creating output directories..."
 mkdir -p /projectnb/paxlab/presh/projects/spatial_atac/Data/01_outputs/archR_objects
-mkdir -p /projectnb/paxlab/presh/projects/spatial_atac/analysis/plots/cnv_analysis
+mkdir -p /projectnb/paxlab/presh/projects/spatial_atac/analysis/plots/archr_obj
 mkdir -p /projectnb/paxlab/presh/projects/spatial_atac/analysis/qsub_logs/build_tissue
 
 # Run ArchR pipeline
@@ -58,7 +70,7 @@ echo "[$(date +'%F %T')] [DONE] Script exited with code: $EXIT_CODE"
 if [[ $EXIT_CODE -eq 0 ]]; then
   echo "[$(date +'%F %T')] [SUCCESS] ArchR pipeline completed successfully!"
   echo "[$(date +'%F %T')] [OUTPUT] ArchR objects: /projectnb/paxlab/presh/projects/spatial_atac/Data/01_outputs/archR_objects/"
-  echo "[$(date +'%F %T')] [OUTPUT] PDF reports: /projectnb/paxlab/presh/projects/spatial_atac/analysis/plots/cnv_analysis/"
+  echo "[$(date +'%F %T')] [OUTPUT] PDF reports: /projectnb/paxlab/presh/projects/spatial_atac/analysis/plots/archr_obj/"
 else
   echo "[$(date +'%F %T')] [FAILED] ArchR pipeline failed with exit code $EXIT_CODE"
 fi

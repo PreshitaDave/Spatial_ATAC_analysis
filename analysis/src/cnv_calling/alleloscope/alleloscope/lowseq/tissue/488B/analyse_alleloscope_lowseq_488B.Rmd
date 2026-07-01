@@ -1,0 +1,683 @@
+---
+title: "Alleloscope Analysis - Lowseq 488B"
+author: "Spatial ATAC Analysis"
+date: "`r Sys.Date()`"
+---
+
+# 1. Setup & Load Alleloscope Object
+
+```{r setup, message=TRUE, warning=FALSE}
+library(data.table)
+library(Matrix)
+library(ggplot2)
+library(pheatmap)
+library(GenomicRanges)
+library(IRanges)
+library(Alleloscope)
+library(matrixStats)
+
+set.seed(42)
+message(sprintf("[%s] Step 0: Initializing analysis environment", Sys.time()))
+
+# Define paths - CORRECTED TO ACTUAL ALLELOSCOPE OUTPUT STRUCTURE
+PROJECT_PATH <- "/projectnb/paxlab/presh/projects/spatial_atac"
+ANALYSIS_PATH <- file.path(PROJECT_PATH, "Data/alleloscope/lowseq_tissue_from_existing/488B")
+OBJ_FINAL_PATH <- file.path(ANALYSIS_PATH, "output/rds/Obj_final.rds")
+COV_OBJ_PATH <- file.path(ANALYSIS_PATH, "output/rds/cov_obj.rds")
+
+message(sprintf("[%s]   Project path: %s", Sys.time(), PROJECT_PATH))
+message(sprintf("[%s]   Analysis path: %s", Sys.time(), ANALYSIS_PATH))
+
+# Verify paths exist
+if (!file.exists(OBJ_FINAL_PATH)) {
+  stop(sprintf("Obj_final.rds not found at: %s", OBJ_FINAL_PATH))
+}
+if (!file.exists(COV_OBJ_PATH)) {
+  stop(sprintf("cov_obj.rds not found at: %s", COV_OBJ_PATH))
+}
+
+# Load Alleloscope object
+message(sprintf("[%s]   Loading Alleloscope objects...", Sys.time()))
+Obj_final <- readRDS(OBJ_FINAL_PATH)
+cov_obj <- readRDS(COV_OBJ_PATH)
+message(sprintf("[%s]   ✓ Loaded Obj_final and cov_obj", Sys.time()))
+
+# Create output directories if they don't exist
+plots_dir <- file.path(ANALYSIS_PATH, "plots")
+if (!dir.exists(plots_dir)) {
+  dir.create(plots_dir, showWarnings = FALSE, recursive = TRUE)
+  message(sprintf("[%s]   Created plots directory: %s", Sys.time(), plots_dir))
+}
+
+# Extract plot_matrix (CNV heatmap data)
+# This is the windowed copy number signal: cells × sliding windows
+raw_counts <- cov_obj$plot_matrix
+message(sprintf("[%s]   Plot matrix dimensions: %d cells × %d windows", Sys.time(), nrow(raw_counts), ncol(raw_counts)))
+
+# Extract barcodes from Obj_final
+all_cell_barcodes <- Obj_final$barcodes
+message(sprintf("[%s]   Total barcodes: %d", Sys.time(), length(all_cell_barcodes)))
+
+message(sprintf("[%s] Step 0 COMPLETE", Sys.time()))
+```
+
+---
+
+# 2. Load Barcode & Cell Type Information
+
+```{r load_metadata, message=TRUE}
+message(sprintf("[%s] Step 1: Loading cell metadata", Sys.time()))
+
+# Extract barcode information from Obj_final
+all_barcodes <- Obj_final$barcodes
+barcode_normal_final <- Obj_final$select_normal$barcode_normal
+
+message(sprintf("[%s]   ✓ Total barcodes: %d", Sys.time(), length(all_barcodes)))
+message(sprintf("[%s]   ✓ Normal cells identified: %d", Sys.time(), length(barcode_normal_final)))
+message(sprintf("[%s]   ✓ Tumor cells: %d", Sys.time(), length(all_barcodes) - length(barcode_normal_final)))
+
+message(sprintf("[%s] Step 1 COMPLETE", Sys.time()))
+```
+
+---
+
+# 3. Filter Blacklist Regions Only
+
+```{r filter_blacklist, message=TRUE}
+message(sprintf("[%s] Step 2: Filtering ATAC blacklist regions", Sys.time()))
+
+# ───────────────────────────────────────────────────────────────────────────
+# 3.1: Remove ATAC blacklist regions (using hg38-blacklist.v2.bed)
+# ───────────────────────────────────────────────────────────────────────────
+message(sprintf("[%s]   Filtering ATAC blacklist regions (telomeres, centromeres, low mappability)...", Sys.time()))
+
+initial_windows <- nrow(raw_counts)
+
+# Load hg38 blacklist regions
+BLACKLIST_FILE <- "/projectnb/paxlab/presh/projects/spatial_atac/Data/04_analysis/cnv/CNV_results/epianeufinder/hg38-blacklist.v2.bed"
+message(sprintf("[%s]   Loading blacklist from: %s", Sys.time(), BLACKLIST_FILE))
+
+if (!file.exists(BLACKLIST_FILE)) {
+  stop(sprintf("Blacklist file not found: %s", BLACKLIST_FILE))
+}
+
+# Read blacklist BED file (4 columns: chr, start, end, description)
+blacklist_df <- data.table::fread(BLACKLIST_FILE, header=FALSE, 
+                                   col.names=c("chrom", "start", "end", "name"))
+message(sprintf("[%s]   Loaded %d blacklist regions", Sys.time(), nrow(blacklist_df)))
+
+# Convert blacklist to GRanges
+blacklist_gr <- GenomicRanges::GRanges(
+  seqnames=blacklist_df$chrom,
+  ranges=IRanges::IRanges(start=blacklist_df$start, end=blacklist_df$end),
+  name=blacklist_df$name
+)
+
+```
+
+Function to remove blacklist regions based on proportion 
+```{r}
+filter_windows_by_blacklist_overlap <- function(
+  count_matrix,
+  blacklist_df,
+  overlap_threshold = 0.5
+) {
+  tryCatch({
+    if(ncol(count_matrix) == 0) return(list(filtered_matrix = count_matrix, keep = logical(0)))
+    
+    window_names <- colnames(count_matrix)
+    
+    window_parts <- strsplit(window_names, "-")
+    window_chr   <- sapply(window_parts, function(x) x[1])
+    window_start <- as.numeric(sapply(window_parts, function(x) x[2]))
+    window_end   <- as.numeric(sapply(window_parts, function(x) x[3]))
+    
+    win_gr <- GRanges(seqnames = window_chr, ranges = IRanges(start = window_start, end = window_end))
+    bl_gr <- GRanges(seqnames = blacklist_df$chr, ranges = IRanges(start = blacklist_df$start, end = blacklist_df$end))
+    
+    seqlevels(bl_gr, pruning.mode = "coarse") <- seqlevels(win_gr)
+    
+    overlaps <- findOverlaps(win_gr, bl_gr)
+    window_idx <- queryHits(overlaps)
+    bl_idx     <- subjectHits(overlaps)
+    
+    window_ranges <- win_gr[window_idx]
+    bl_ranges     <- bl_gr[bl_idx]
+    
+    intersect_starts <- pmax(start(window_ranges), start(bl_ranges))
+    intersect_ends   <- pmin(end(window_ranges), end(bl_ranges))
+    intersect_widths <- intersect_ends - intersect_starts + 1
+    intersect_widths[intersect_widths < 0] <- 0
+    
+    overlap_bases <- tapply(intersect_widths, window_idx, sum)
+    window_widths <- width(win_gr)
+    
+    # FIX: Map numeric indices back to window names
+    prop_overlapped <- rep(0, length(window_names))
+    names(prop_overlapped) <- window_names
+    
+    # Use as.numeric(names(overlap_bases)) to convert numeric names back to indices
+    for(i in as.numeric(names(overlap_bases))) {
+      prop_overlapped[window_names[i]] <- overlap_bases[as.character(i)] / window_widths[i]
+    }
+    
+    windows_to_keep <- prop_overlapped <= overlap_threshold
+    
+    message(sprintf("[DEBUG] Windows filtered: %d removed, %d kept", 
+                    sum(!windows_to_keep), sum(windows_to_keep)))
+    
+    filtered_matrix <- count_matrix[, windows_to_keep, drop = FALSE]
+    
+    return(list(
+      filtered_matrix = filtered_matrix,
+      keep = windows_to_keep,
+      prop_overlapped = prop_overlapped
+    ))
+    
+  }, error = function(e) {
+    message(sprintf("[ERROR] %s", e$message))
+    traceback()
+    return(NULL)
+  })
+}
+```
+
+
+
+```{r}
+raw_counts_bl <- filter_windows_by_blacklist_overlap(
+  raw_counts,
+  blacklist_df = blacklist_df,
+  overlap_threshold = 0.5
+)
+
+raw_counts_filt = raw_counts_bl$filtered_matrix
+
+message(sprintf("Filtered matrix shape: %d x %d", nrow(raw_counts_filt), ncol(raw_counts_filt)))
+message(sprintf("[%s] Step 2 COMPLETE", Sys.time()))
+```
+
+
+---
+
+# 4. Re-plot Step 6 CNV Heatmap with Blacklist-Filtered Data
+
+
+
+```{r}
+library(GenomicRanges)
+
+filter_windows_by_blacklist_overlap <- function(
+  count_matrix,
+  blacklist_df,
+  overlap_threshold = 0.5
+) {
+  # count_matrix: cells x windows (columns named as "chr-start-end")
+  # blacklist_df: data.frame with columns "chr", "start", "end"
+  # overlap_threshold: Proportion of window allowed to overlap blacklist (default 0.5 == 50%)
+  
+  if(ncol(count_matrix) == 0) return(list(filtered_matrix = count_matrix, keep = logical(0)))
+  # Grab window coordinates from column names
+  window_names <- colnames(count_matrix)
+  window_parts <- strsplit(window_names, "-")
+  window_chr   <- sapply(window_parts, function(x) x[1])
+  window_start <- as.numeric(sapply(window_parts, function(x) x[2]))
+  window_end   <- as.numeric(sapply(window_parts, function(x) x[3]))
+  
+  win_gr <- GRanges(seqnames = window_chr, ranges = IRanges(start = window_start, end = window_end))
+  bl_gr <- GRanges(seqnames = blacklist_df$chr, ranges = IRanges(start = blacklist_df$start, end = blacklist_df$end))
+  
+  # Find overlaps
+  overlaps <- findOverlaps(win_gr, bl_gr)
+  window_idx <- queryHits(overlaps)
+  bl_idx     <- subjectHits(overlaps)
+  
+  window_ranges <- win_gr[window_idx]
+  bl_ranges     <- bl_gr[bl_idx]
+  
+  intersect_starts <- pmax(start(window_ranges), start(bl_ranges))
+  intersect_ends   <- pmin(end(window_ranges), end(bl_ranges))
+  intersect_widths <- intersect_ends - intersect_starts + 1
+  intersect_widths[intersect_widths < 0] <- 0
+  
+  # Sum overlap bases for each window
+  overlap_bases <- tapply(intersect_widths, window_idx, sum)
+  window_widths <- width(win_gr)
+  
+  prop_overlapped <- rep(0, length(window_names))
+  names(prop_overlapped) <- window_names
+  prop_overlapped[names(overlap_bases)] <- overlap_bases / window_widths[as.integer(names(overlap_bases))]
+  
+  windows_to_keep <- prop_overlapped <= overlap_threshold
+  
+  filtered_matrix <- count_matrix[, windows_to_keep, drop = FALSE]
+  
+  return(list(
+    filtered_matrix = filtered_matrix,
+    keep = windows_to_keep,
+    prop_overlapped = prop_overlapped
+  ))
+}
+
+
+
+```
+
+```{r}
+plot_scATAC_cnv_debug <- function (raw_mat = NULL, cell_type = NULL, normal_lab = "normal", 
+    size = NULL, window_w = 1e+07, window_step = 2e+06, plot_path = NULL, 
+    nclust = 3, var.filter = FALSE, annotation_df = NULL) 
+{
+    if (is.null(plot_path)) {
+        plot_path = paste0("./plots/CNV_cov_w", window_w, "_s", 
+            window_step, "_sub.pdf")
+        dir.create("./plots/")
+    }
+    if (var.filter == TRUE) {
+        vars = apply(raw_mat, 1, var)
+        cellsize = colSums(raw_mat[which(vars < quantile(vars, 
+            0.99)), ])
+    } else {
+        cellsize = colSums(raw_mat)
+    }
+    cellsize = matrix(rep(cellsize, nrow(raw_mat)), byrow = T, 
+        ncol = ncol(raw_mat))
+    raw_mat = raw_mat/cellsize
+    if (grepl("chr", size[1, 1])) {
+        size = size
+    } else {
+        size[, 1] = paste0("chr", size[, 1])
+    }
+    size = size[(size[, 1] %in% paste0("chr", 1:22)), ]
+    cnv_bin0 = GRanges(size[, 1], IRanges(1, as.numeric(size[, 
+        2])))
+    sw = slidingWindows(x = cnv_bin0, width = window_w, step = window_step)
+    cnv_bin = sw@unlistData
+    subject = GRanges(sapply(strsplit(rownames(raw_mat), ":|_|-"), 
+        "[", 1), IRanges(as.numeric(sapply(strsplit(rownames(raw_mat), 
+        ":|_|-"), "[", 2)) + 1, as.numeric(sapply(strsplit(rownames(raw_mat), 
+        ":|_|-"), "[", 3))))
+    ov = findOverlaps(cnv_bin, subject)
+    ov = as.matrix(ov)
+    smooth_mat = matrix(ncol = ncol(raw_mat), nrow = length(cnv_bin))
+    for (ii in 1:length(cnv_bin)) {
+        ri = colSums(raw_mat[ov[which(ov[, 1] == ii), 2], , drop = F])
+        smooth_mat[ii, ] = ri
+    }
+    colnames(smooth_mat) = colnames(raw_mat)
+    rownames(smooth_mat) = paste0(as.character(seqnames(cnv_bin)), 
+        "-", start(cnv_bin), "-", end(cnv_bin))
+    rownames(cell_type) = cell_type[, 1]
+    mat_celltype = cell_type[match(colnames(smooth_mat), rownames(cell_type)), 
+        2]
+    nontumor_mat = smooth_mat[, which((mat_celltype %in% normal_lab))]
+    bin_ind = which(rowMedians(nontumor_mat) != 0)
+    norm_matrix = matrix(rep(rowMedians(nontumor_mat), ncol(smooth_mat)), 
+        ncol = ncol(smooth_mat), byrow = F)
+    smooth_mat_norm = smooth_mat[bin_ind, , drop = FALSE]/(norm_matrix[bin_ind, 
+        , drop = FALSE])
+    smooth_mat_norm = apply(smooth_mat_norm, c(1, 2), function(x) min(x, 
+        5))
+    plot_matrix = t(smooth_mat_norm)
+    smooth_mat_rn <- as.character(rownames(smooth_mat))
+    chrgap = (table(sapply(strsplit(smooth_mat_rn[bin_ind], "-"), 
+        "[", 1))[paste0("chr", 1:nrow(size))])
+    chrgap[is.na(chrgap)] = 0
+    col_lab = rep(" ", ncol(plot_matrix))
+    col_lab[c(0, cumsum(chrgap)[which(chrgap != 0)])[1:length(which(chrgap != 
+        0))] + chrgap[which(chrgap != 0)]/2] = names(chrgap)[!is.na(names(chrgap))]
+    celltype = as.data.frame(cell_type)
+    rownames(celltype) = celltype[, 1]
+    if (!is.null(annotation_df)) {
+        annotation_df <- as.data.frame(annotation_df)
+        shared_bc <- intersect(rownames(celltype), rownames(annotation_df))
+        extra_cols <- annotation_df[shared_bc, , drop = FALSE]
+        celltype <- cbind(celltype[shared_bc, , drop = FALSE], 
+            extra_cols)
+    }
+    plot_matrix = plot_matrix * 2
+    plot_matrix = apply(plot_matrix, c(1, 2), function(x) if (x <= 
+        2.5 & x >= 1.5) {
+        x = 2
+    }
+    else {
+        x = x
+    })
+    breaklength = 50
+    setcolor = colorRampPalette(c("blue", "white", "red"))(breaklength)
+    setbreaks = c(seq(min(plot_matrix), 1.7, length.out = ceiling(breaklength/2) + 
+        1), c(2.3, seq((max(plot_matrix) - 2.3)/breaklength + 
+        2.3, max(plot_matrix), length.out = floor(breaklength/2)))[1:(breaklength/2)])
+    
+    
+        # REMOVE rows with all constant values (all same value or all NA)
+    is_constant <- apply(plot_matrix, 1, function(x) (all(is.na(x)) || length(unique(x[!is.na(x)])) <= 1))
+    if (any(is_constant)) {
+        message(sprintf("Removing %d constant/NA rows for clustering.", sum(is_constant)))
+        plot_matrix <- plot_matrix[!is_constant, , drop=FALSE]
+        celltype <- celltype[!is_constant, , drop=FALSE]
+    }
+
+    # REMOVE rows with any NA/Inf value
+    inval_row <- apply(plot_matrix, 1, function(x) any(is.na(x) | is.infinite(x)))
+    if (any(inval_row)) {
+        message(sprintf("Removing %d rows with NA/Inf values for clustering.", sum(inval_row)))
+        plot_matrix <- plot_matrix[!inval_row, , drop=FALSE]
+        celltype <- celltype[!inval_row, , drop=FALSE]
+    }
+
+    # Final checks before plotting
+    message(sprintf("After cleaning: %d cells x %d regions", nrow(plot_matrix), ncol(plot_matrix)))
+    message(sprintf("Any constant rows left? %s", any(apply(plot_matrix, 1, function(x) length(unique(x)) <= 1))))
+    message(sprintf("Any NA/Inf in plot_matrix? %s", any(!is.finite(plot_matrix))))
+    
+    
+    png(plot_path, width = 800, height = 450)
+    tmp = pheatmap::pheatmap(plot_matrix, cluster_cols = F, cluster_rows = TRUE, 
+        show_rownames = F, show_colnames = T, color = setcolor, 
+        breaks = setbreaks, labels_col = col_lab, clustering_distance_rows = "correlation", 
+        clustering_method = "ward.D2", gaps_col = cumsum(chrgap), 
+        cutree_rows = nclust, annotation_row = celltype[, -1, 
+            drop = FALSE])
+    dev.off()
+    message("Plot successfully generated!")
+    cat("Path: ", plot_path, "\n")
+    od = tmp$tree_row$order
+    clust = cutree(tmp$tree_row, k = nclust)
+    clust_order = clust[od]
+    cov_obj = list(clust_order = clust_order, plot_matrix = plot_matrix)
+    return(cov_obj)
+}
+```
+
+
+
+
+
+```{r}
+message(sprintf("[%s] Step 3: Plotting blacklist-filtered CNV heatmap", Sys.time()))
+
+# Prepare cell type labels
+all_barcodes_matrix <- rownames(raw_counts_filt)  # Barcodes from filtered matrix
+cell_type_df <- data.frame(
+  barcode = all_barcodes_matrix,
+  cell_type = ifelse(all_barcodes_matrix %in% barcode_normal_final, "normal", "tumor"),
+  stringsAsFactors = FALSE
+)
+
+# Keep only cells with data in filtered matrix
+keep_cells <- rowSums(raw_counts_filt[cell_type_df$barcode,]) > 0
+message(sprintf("[%s]   Cells with >0 coverage: %d / %d", 
+                Sys.time(), sum(keep_cells), nrow(raw_counts_filt)))
+
+cell_type_df_filt <- cell_type_df[keep_cells, , drop = FALSE]
+
+if (sum(keep_cells) == 0) {
+  message(sprintf("[WARN] No cells have coverage after filtering!"))
+  # Plot unfiltered for comparison
+  message(sprintf("[%s]   Saving full heatmap anyway (unfiltered windows)...", Sys.time()))
+  plot_data <- raw_counts
+  cell_type_for_plot <- data.frame(
+    barcode = rownames(raw_counts),
+    cell_type = ifelse(rownames(raw_counts) %in% barcode_normal_final, "normal", "tumor"),
+    stringsAsFactors = FALSE
+  )
+} else {
+  plot_data <- raw_counts_filt[keep_cells, , drop = FALSE]
+  cell_type_for_plot <- cell_type_df_filt
+}
+
+# Create heatmap
+message(sprintf("[%s]   Creating heatmap: %d cells × %d windows", 
+                Sys.time(), nrow(plot_data), ncol(plot_data)))
+
+# Prepare cell type colors
+cell_colors <- ifelse(cell_type_for_plot$cell_type == "normal", "#2166AC", "#B2182B")
+names(cell_colors) <- cell_type_for_plot$barcode
+
+# Plot heatmap with cell type annotation
+ann_col <- data.frame(
+  CellType = cell_type_for_plot$cell_type,
+  row.names = cell_type_for_plot$barcode
+)
+
+# Recalculate size_df to match filtered windows
+message(sprintf("[%s]   Recalculating size_df for filtered windows", Sys.time()))
+
+filtered_window_coords <- data.frame(
+  window_name = colnames(raw_counts_filt),
+  stringsAsFactors = FALSE
+)
+
+filtered_parts_list <- strsplit(filtered_window_coords$window_name, "-")
+filtered_window_coords$chr <- sapply(filtered_parts_list, function(x) x[1])
+filtered_window_coords$start <- as.numeric(sapply(filtered_parts_list, function(x) x[2]))
+filtered_window_coords$end <- as.numeric(sapply(filtered_parts_list, function(x) x[3]))
+
+filtered_chr_sizes <- aggregate(
+  filtered_window_coords$end,
+  by = list(filtered_window_coords$chr),
+  FUN = max
+)
+colnames(filtered_chr_sizes) <- c("chr", "size_bp")
+filtered_chr_sizes$chr <- as.character(filtered_chr_sizes$chr)
+
+# Convert to matrix format for plot_scATAC_cnv
+size_mat <- as.matrix(filtered_chr_sizes)
+
+
+# Remove zero-variance columns
+col_sds <- apply(plot_data, 2, sd, na.rm = TRUE)
+if (any(col_sds == 0 | is.na(col_sds))) {
+  plot_data <- plot_data[, col_sds > 0 & !is.na(col_sds), drop=FALSE]
+  # Optionally match/filter size_mat accordingly if needed
+  if (is.matrix(size_mat) && nrow(size_mat) == length(col_sds)) {
+    size_mat <- size_mat[col_sds > 0 & !is.na(col_sds), , drop=FALSE]
+  }
+}
+
+# Call plot_scATAC_cnv with updated size
+message(sprintf("[%s]   Calling plot_scATAC_cnv with updated size", Sys.time()))
+
+cov_obj_plot <- plot_scATAC_cnv_debug(
+  raw_mat = t(plot_data),  # Transpose to regions × cells
+  cell_type = cell_type_for_plot,
+  normal_lab = "normal",
+  plot_path = file.path(ANALYSIS_PATH, "plots", "step6_CNV_heatmap_filtered.png"),
+  nclust = 2,
+  size = as.data.frame(size_mat),
+  var.filter = T  # Disable variance filtering since blacklist filtering is applied
+)
+
+message(sprintf("[%s]   ✓ Heatmap saved to: %s/plots/step6_CNV_heatmap_filtered.png", 
+                Sys.time(), ANALYSIS_PATH))
+
+message(sprintf("[%s] Step 3 COMPLETE", Sys.time()))
+```
+
+
+---
+
+# 5. Extract & Visualize Genotype Information
+
+```{r extract_genotypes, message=TRUE}
+message(sprintf("[%s] Step 4: Extracting genotype information", Sys.time()))
+
+# Extract theta (copy number state) data
+if (!is.null(Obj_final$theta_hats)) {
+  theta_hats <- Obj_final$theta_hats
+  message(sprintf("[%s]   ✓ Extracted theta_hats: %d cells × %d segments", 
+                  Sys.time(), nrow(theta_hats), ncol(theta_hats)))
+} else {
+  message(sprintf("[%s]   NOTE: No theta_hats data available", Sys.time()))
+  theta_hats <- NULL
+}
+
+# Extract genotype data
+if (!is.null(Obj_final$genotypes)) {
+  genotypes <- Obj_final$genotypes
+  message(sprintf("[%s]   ✓ Extracted genotypes: %d variants × %d segments", 
+                  Sys.time(), nrow(genotypes), ncol(genotypes)))
+} else {
+  message(sprintf("[%s]   NOTE: No genotypes data available", Sys.time()))
+  genotypes <- NULL
+}
+
+# Extract genotype values (e.g., copy number values)
+if (!is.null(Obj_final$genotype_values)) {
+  genotype_values <- Obj_final$genotype_values
+  message(sprintf("[%s]   ✓ Extracted genotype_values: %d variants × %d cells", 
+                  Sys.time(), nrow(genotype_values), ncol(genotype_values)))
+} else {
+  message(sprintf("[%s]   NOTE: No genotype_values data available", Sys.time()))
+  genotype_values <- NULL
+}
+
+message(sprintf("[%s] Step 4 COMPLETE", Sys.time()))
+```
+
+---
+
+# 6. Clonal Deconvolution & Lineage Analysis
+
+```{r clonal_analysis, message=TRUE}
+message(sprintf("[%s] Step 5: Clonal deconvolution", Sys.time()))
+
+# Extract tumor cells from filtered matrix
+all_barcodes_filt <- rownames(raw_counts_filt)
+tumor_barcodes <- setdiff(all_barcodes_filt, barcode_normal_final)
+message(sprintf("[%s]   Identified %d tumor cells", Sys.time(), length(tumor_barcodes)))
+
+if (length(tumor_barcodes) > 0) {
+  tumor_mat <- raw_counts_filt[tumor_barcodes, , drop = FALSE]
+  message(sprintf("[%s]   Tumor matrix: %d cells × %d windows", 
+                  Sys.time(), nrow(tumor_mat), ncol(tumor_mat)))
+  
+  # Compute pairwise similarity between tumor cells
+  message(sprintf("[%s]   Computing cell-cell similarity...", Sys.time()))
+  if (nrow(tumor_mat) > 1) {
+    sim_matrix <- cor(t(tumor_mat), method = "spearman")
+    message(sprintf("[%s]   ✓ Similarity matrix: %d × %d", 
+                    Sys.time(), nrow(sim_matrix), ncol(sim_matrix)))
+  } else {
+    message(sprintf("[%s]   NOTE: Only 1 tumor cell - skipping similarity", Sys.time()))
+    sim_matrix <- NULL
+  }
+} else {
+  message(sprintf("[WARN] No tumor cells identified - skipping clonal analysis"))
+  sim_matrix <- NULL
+}
+
+message(sprintf("[%s] Step 5 COMPLETE", Sys.time()))
+```
+
+---
+
+# 7. Cell Type & Cluster-Specific Analysis
+
+```{r cell_clustering, message=TRUE}
+message(sprintf("[%s] Step 6: Cell type and cluster analysis", Sys.time()))
+
+# Compare normal vs tumor profiles using filtered matrix
+all_barcodes_filt <- rownames(raw_counts_filt)
+normal_barcodes <- intersect(barcode_normal_final, all_barcodes_filt)
+tumor_barcodes <- setdiff(all_barcodes_filt, barcode_normal_final)
+
+message(sprintf("[%s]   Normal cells: %d", Sys.time(), length(normal_barcodes)))
+message(sprintf("[%s]   Tumor cells: %d", Sys.time(), length(tumor_barcodes)))
+
+if (length(normal_barcodes) > 0 & length(tumor_barcodes) > 0) {
+  normal_profile <- colMeans(raw_counts_filt[normal_barcodes, , drop = FALSE])
+  tumor_profile <- colMeans(raw_counts_filt[tumor_barcodes, , drop = FALSE])
+  
+  # Compute log2 fold-change
+  log2fc <- log2((tumor_profile + 1) / (normal_profile + 1))
+  
+  message(sprintf("[%s]   Log2FC computed for %d windows", Sys.time(), length(log2fc)))
+  message(sprintf("[%s]   Mean Log2FC: %.3f", Sys.time(), mean(log2fc, na.rm = TRUE)))
+  message(sprintf("[%s]   SD Log2FC: %.3f", Sys.time(), sd(log2fc, na.rm = TRUE)))
+  message(sprintf("[%s]   Range Log2FC: [%.3f, %.3f]", Sys.time(), 
+                  min(log2fc, na.rm = TRUE), max(log2fc, na.rm = TRUE)))
+} else {
+  message(sprintf("[WARN] Cannot compute normal vs tumor profiles - insufficient cell groups"))
+}
+
+message(sprintf("[%s] Step 6 COMPLETE", Sys.time()))
+```
+
+---
+
+# 8. Summary & Output Report
+
+```{r summary_report, message=TRUE}
+message(sprintf("[%s] FINAL SUMMARY", Sys.time()))
+
+# Create summary statistics
+summary_stats <- data.frame(
+  Metric = c(
+    "Total sliding windows (initial)",
+    "Windows after blacklist filtering",
+    "Windows retained (%)",
+    "Total cells",
+    "Normal cells",
+    "Tumor cells",
+    "Cells with >0 coverage"
+  ),
+  Value = c(
+    ncol(raw_counts),
+    ncol(raw_counts_filt),
+    sprintf("%.1f%%", 100 * ncol(raw_counts_filt) / ncol(raw_counts)),
+    nrow(raw_counts),
+    length(barcode_normal_final),
+    nrow(raw_counts) - length(barcode_normal_final),
+    sum(keep_cells)
+  ),
+  stringsAsFactors = FALSE
+)
+
+print(summary_stats)
+
+message(sprintf("[%s]   ✓ Analysis complete", Sys.time()))
+message(sprintf("[%s]   ✓ Output path: %s", Sys.time(), ANALYSIS_PATH))
+message(sprintf("[%s]   ✓ Heatmap saved to: %s/plots/step6_CNV_heatmap_filtered.png", 
+                Sys.time(), ANALYSIS_PATH))
+```
+
+---
+
+
+```{r}
+proj <- loadArchRProject(path = "/projectnb/paxlab/presh/projects/spatial_atac/Data/01_outputs/archR_objects/lowseq_489/lowseq_489_archR_project_final")
+
+# proj_test = proj[rownames(proj@cellColData)[1:5], ]
+
+proj <- addGroupCoverages(ArchRProj = proj, groupBy = "barcode_mapping", force = TRUE)
+ 
+saveArchRProject(
+      ArchRProj = proj,
+      load = FALSE
+    )
+
+
+
+
+macs2_path <- "/share/pkg.7/macs2/2.2.7.1/install/bin/macs2"  # or wherever it is
+
+
+proj <- addReproduciblePeakSet(
+    ArchRProj = proj,
+    groupBy = "barcode_mapping",
+    peakMethod = "Macs2",
+    pathToMacs2 = macs2_path,
+    pvalue = 0.1,
+    force = TRUE,     verbose = TRUE  
+)
+
+saveArchRProject(
+      ArchRProj = proj,
+      load = FALSE
+    )
+```
+
+
+

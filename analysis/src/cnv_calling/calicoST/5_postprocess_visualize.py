@@ -40,6 +40,8 @@ def parse_args():
     p.add_argument("--spatial-weight", type=float, default=1.0)
     p.add_argument("--n-clones-purity", type=int, default=5,
                    help="n_clones used in purity run (to locate tumorprop file)")
+    p.add_argument("--output-base", default=None,
+                   help="Override output base directory (default: Data/04_analysis/cnv/calicoST/<tissue>)")
     return p.parse_args()
 
 
@@ -156,9 +158,10 @@ def main():
     args = parse_args()
     tissue = args.tissue
 
-    base_dir_cna    = f"{PROJECT_ROOT}/Data/04_analysis/cnv/calicoST/{tissue}/cna"
-    base_dir_purity = f"{PROJECT_ROOT}/Data/04_analysis/cnv/calicoST/{tissue}/purity"
-    plots_dir       = f"{PROJECT_ROOT}/Data/04_analysis/cnv/calicoST/{tissue}/plots"
+    _base = args.output_base or f"{PROJECT_ROOT}/Data/04_analysis/cnv/calicoST/{tissue}"
+    base_dir_cna    = f"{_base}/cna"
+    base_dir_purity = f"{_base}/purity"
+    plots_dir       = f"{_base}/plots"
     Path(plots_dir).mkdir(parents=True, exist_ok=True)
 
     logger.info(f"=== Postprocessing CalicoST results for: {tissue} ===")

@@ -1,0 +1,68 @@
+# CalicoST configuration: CNA + clone calling for lowseq_488B
+# Run with: python 4_run_cna.py tissue/lowseq_488B/config_cna.yaml
+#
+# Normal reference: same mosaicfield-derived barcodes as purity step.
+
+# --- I/O ---
+spaceranger_dir : /projectnb/paxlab/presh/projects/spatial_atac/Data/04_analysis/cnv/calicoST/lowseq_488B/parsed_inputs
+snp_dir         : /projectnb/paxlab/presh/projects/spatial_atac/Data/04_analysis/cnv/calicoST/lowseq_488B/parsed_inputs
+output_dir      : /projectnb/paxlab/presh/projects/spatial_atac/Data/04_analysis/cnv/calicoST/lowseq_488B/cna
+
+tumorprop_file  : None
+
+normalidx_file  : /projectnb/paxlab/presh/projects/spatial_atac/analysis/binsize_comparison/normal_barcodes/lowseq_488B_normal_barcodes.csv
+
+supervision_clone_file : None
+alignment_files        :
+bafonly                : False
+
+# --- Reference files ---
+geneticmap_file    : /projectnb/paxlab/presh/software/CalicoST/GRCh38_resources/genetic_map_GRCh38_merged.tab.gz
+hgtable_file       : /projectnb/paxlab/presh/software/CalicoST/GRCh38_resources/hgTables_hg38_gencode.txt
+filtergenelist_file: /projectnb/paxlab/presh/software/CalicoST/GRCh38_resources/ig_gene_list.txt
+filterregion_file  : /projectnb/paxlab/presh/software/CalicoST/GRCh38_resources/HLA_regions.bed
+
+# --- Preprocessing ---
+secondary_min_umi          : 300
+min_snpumi_perspot         : 50
+min_percent_expressed_spots: 0.005
+
+# --- Phase switch probability ---
+nu             : 1.0
+logphase_shift : -2.0
+npart_phasing  : 3
+
+# --- HMRF ---
+n_clones                    : 3
+n_clones_rdr                : 2
+min_spots_per_clone         : 50
+min_avgumi_per_clone        : 5
+maxspots_pooling            : 7
+tumorprop_threshold         : 0.5
+max_iter_outer              : 20
+nodepotential               : weighted_sum
+initialization_method       : rectangle
+num_hmrf_initialization_start: 0
+num_hmrf_initialization_end  : 1
+spatial_weight              : 1.0
+construct_adjacency_method  : hexagon
+construct_adjacency_w       : 1.0
+
+# --- HMM ---
+n_states            : 7
+params              : smp
+t                   : 1-1e-5
+t_phaseing          : 0.9999
+fix_NB_dispersion   : False
+shared_NB_dispersion: True
+fix_BB_dispersion   : False
+shared_BB_dispersion: True
+max_iter            : 30
+tol                 : 0.0001
+gmm_random_state    : 0
+np_threshold        : 1.0
+np_eventminlen      : 10
+
+# --- Integer copy number ---
+nonbalance_bafdist : 1.0
+nondiploid_rdrdist : 10.0

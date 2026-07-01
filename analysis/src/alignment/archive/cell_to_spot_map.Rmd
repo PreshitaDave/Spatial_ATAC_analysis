@@ -1,0 +1,588 @@
+---
+title: "MOSAICField Alignment Validation: ATAC Spots to Xenium Cells Mapping"
+date: "`r Sys.Date()`"
+---
+
+## Setup Instructions
+
+Before running this notebook, set up the environment:
+
+```bash
+conda activate /projectnb/paxlab/presh/env/conda_env/giotto_env311
+export LD_LIBRARY_PATH=/projectnb/paxlab/presh/env/conda_env/giotto_env311/lib:$LD_LIBRARY_PATH
+export LD_PRELOAD=/projectnb/paxlab/presh/env/conda_env/giotto_env311/lib/libstdc++.so.6
+R --vanilla
+```
+
+## Overview
+
+This notebook validates MOSAICField alignment outputs and maps spatial ATAC spots to Xenium single-cell locations. 
+The workflow includes:
+1. **Debugging**: Validate alignment quality and spatial consistency
+2. **Polygon Creation**: Create 10µm square polygons for ATAC spots
+3. **Mapping**: Calculate Xenium cell to ATAC spot overlap
+4. **Analysis**: Generate density statistics and visualization 
+
+## Section 1: Environment Initialization
+
+```{r setup, message=FALSE, warning=FALSE}
+# Configure Python environment
+Sys.setenv(RETICULATE_PYTHON = "/projectnb/paxlab/presh/env/conda_env/giotto_env311/bin/python")
+
+# Load libraries
+library(reticulate)
+library(Giotto)
+library(data.table)
+library(ggplot2)
+library(arrow)
+library(sf)
+library(dplyr)
+
+# Verify Python and packages
+py_config()
+tryCatch(reticulate::import("scanpy"), error = function(e) warning("scanpy not found"))
+
+# Configure R library paths for Giotto
+.libPaths(c('/projectnb/paxlab/presh/env/R_4.5.2/giotto_libs', .libPaths()))
+
+# Initialize Giotto Python backend
+GiottoClass::set_giotto_python_path(
+  python_path = "/projectnb/paxlab/presh/env/conda_env/giotto_env311/bin/python",
+  initialize = TRUE
+)
+
+# Set paths
+input.path <- '/projectnb/paxlab/presh/projects/spatial_atac/analysis/src/alignment/mosaicfield_outputs'
+output.path <- '/projectnb/paxlab/presh/projects/spatial_atac/analysis/src/alignment'
+
+cat("[SETUP] All libraries loaded and paths configured\n")
+```
+
+## Section 2: Debugging - Validate Alignment Quality
+
+Before mapping, we validate that MOSAICField correctly aligned the ATAC and Xenium data.
+
+```{r debug-load-data, message=FALSE}
+cat("\n=== STEP 1: Loading Aligned Objects ===\n")
+
+# Load ATAC object
+cat("Loading ATAC Giotto object...\n")
+g_atac <- anndataToGiotto(
+  anndata_path = file.path(input.path, "atac_mosaicfield_outputs.h5ad"),
+  python_path = "/projectnb/paxlab/presh/env/conda_env/giotto_env311/bin/python"
+)
+cat("✓ ATAC object loaded\n")
+
+# Load Xenium object
+cat("Loading Xenium Giotto object...\n")
+g_xenium <- anndataToGiotto(
+  anndata_path = file.path(input.path, "xenium_mosaicfield_outputs.h5ad"),
+  python_path = "/projectnb/paxlab/presh/env/conda_env/giotto_env311/bin/python"
+)
+cat("✓ Xenium object loaded\n")
+
+# Extract metadata
+atac_meta <- pDataDT(g_atac)
+xenium_meta <- pDataDT(g_xenium)
+
+cat("\nObject Dimensions:\n")
+cat("  ATAC spots:", nrow(atac_meta), "\n")
+cat("  Xenium cells:", nrow(xenium_meta), "\n")
+```
+
+```{r debug-validate-coordinates}
+cat("\n=== STEP 2: Validate Spatial Coordinates ===\n")
+
+# Check for coordinate columns
+atac_has_coords <- all(c("x", "y") %in% colnames(atac_meta))
+xenium_has_coords <- all(c("x", "y") %in% colnames(xenium_meta))
+
+cat("ATAC has x,y coordinates:", atac_has_coords, "\n")
+cat("Xenium has x,y coordinates:", xenium_has_coords, "\n")
+
+# Print coordinate ranges
+if (atac_has_coords) {
+  cat("\nATAC Coordinate Range:\n")
+  print(data.frame(
+    dimension = c("X", "Y"),
+    min = c(min(atac_meta$x), min(atac_meta$y)),
+    max = c(max(atac_meta$x), max(atac_meta$y)),
+    span = c(max(atac_meta$x) - min(atac_meta$x), 
+             max(atac_meta$y) - min(atac_meta$y))
+  ))
+}
+
+if (xenium_has_coords) {
+  cat("\nXenium Coordinate Range:\n")
+  print(data.frame(
+    dimension = c("X", "Y"),
+    min = c(min(xenium_meta$x), min(xenium_meta$y)),
+    max = c(max(xenium_meta$x), max(xenium_meta$y)),
+    span = c(max(xenium_meta$x) - min(xenium_meta$x), 
+             max(xenium_meta$y) - min(xenium_meta$y))
+  ))
+}
+```
+
+```{r debug-alignment-quality, message=FALSE}
+cat("\n=== STEP 3: Alignment Quality Assessment ===\n")
+
+if (atac_has_coords && xenium_has_coords) {
+  # Calculate spatial overlap metrics
+  atac_area <- (max(atac_meta$x) - min(atac_meta$x)) * (max(atac_meta$y) - min(atac_meta$y))
+  xenium_area <- (max(xenium_meta$x) - min(xenium_meta$x)) * (max(xenium_meta$y) - min(xenium_meta$y))
+  
+  cat("Bounding Box Areas:\n")
+  cat("  ATAC area:", formatC(atac_area, format="f", digits=0), "µm²\n")
+  cat("  Xenium area:", formatC(xenium_area, format="f", digits=0), "µm²\n")
+  cat("  Area ratio (xenium/atac):", round(xenium_area/atac_area, 3), "\n")
+  
+  # Assess alignment
+  area_ratio <- xenium_area / atac_area
+  if (0.5 < area_ratio && area_ratio < 2.0) {
+    cat("✓ GOOD: Objects have similar spatial extents (well-aligned)\n")
+    alignment_check <- "PASS"
+  } else if (0.1 < area_ratio && area_ratio < 10) {
+    cat("⚠ CAUTION: Objects have different spatial extents (possible misalignment)\n")
+    alignment_check <- "CAUTION"
+  } else {
+    cat("✗ FAIL: Objects have very different scales (likely misaligned)\n")
+    alignment_check <- "FAIL"
+  }
+  
+  cat("\nAlignment Status:", alignment_check, "\n")
+}
+```
+
+```{r debug-plots, fig.width=12, fig.height=12, message=FALSE}
+cat("\n=== STEP 4: Diagnostic Overlay Plots ===\n")
+
+if (atac_has_coords && xenium_has_coords) {
+  
+  # Plot 1: Full overlay of ATAC and Xenium
+  p1 <- ggplot() +
+    geom_point(data = atac_meta, aes(x = x, y = y, color = "ATAC Spots"), 
+               size = 2, alpha = 0.6, shape = 15) +
+    geom_point(data = xenium_meta, aes(x = x, y = y, color = "Xenium Cells"), 
+               size = 1, alpha = 0.3, shape = 16) +
+    scale_color_manual(values = c("ATAC Spots" = "red", "Xenium Cells" = "blue")) +
+    coord_fixed() +
+    theme_minimal() +
+    labs(
+      title = "Overlay: ATAC Spots (red) vs Xenium Cells (blue)",
+      subtitle = paste("ATAC:", nrow(atac_meta), "spots | Xenium:", nrow(xenium_meta), "cells"),
+      x = "X Coordinate (µm)",
+      y = "Y Coordinate (µm)",
+      color = "Data Type"
+    ) +
+    theme(legend.position = "right", plot.title = element_text(face = "bold"))
+  
+  print(p1)
+  ggsave(file.path(output.path, "01_debug_overlay_all.png"), p1, width = 10, height = 10, dpi = 150)
+  cat("✓ Saved: 01_debug_overlay_all.png\n")
+  
+  # Plot 2: ATAC spots only
+  p2 <- ggplot(atac_meta, aes(x = x, y = y)) +
+    geom_point(color = "red", size = 2.5, alpha = 0.6, shape = 15) +
+    coord_fixed() +
+    theme_minimal() +
+    labs(
+      title = paste("ATAC Spots Distribution (n =", nrow(atac_meta), ")"),
+      x = "X Coordinate (µm)",
+      y = "Y Coordinate (µm)"
+    ) +
+    theme(plot.title = element_text(face = "bold"))
+  
+  print(p2)
+  ggsave(file.path(output.path, "02_debug_atac_spots.png"), p2, width = 8, height = 8, dpi = 150)
+  cat("✓ Saved: 02_debug_atac_spots.png\n")
+  
+  # Plot 3: Xenium cells only
+  p3 <- ggplot(xenium_meta, aes(x = x, y = y)) +
+    geom_point(color = "blue", size = 1, alpha = 0.5, shape = 16) +
+    coord_fixed() +
+    theme_minimal() +
+    labs(
+      title = paste("Xenium Cells Distribution (n =", nrow(xenium_meta), ")"),
+      x = "X Coordinate (µm)",
+      y = "Y Coordinate (µm)"
+    ) +
+    theme(plot.title = element_text(face = "bold"))
+  
+  print(p3)
+  ggsave(file.path(output.path, "03_debug_xenium_cells.png"), p3, width = 8, height = 8, dpi = 150)
+  cat("✓ Saved: 03_debug_xenium_cells.png\n")
+  
+  cat("\nDiagnostic plots saved to:", output.path, "\n")
+}
+```
+
+## Section 3: ATAC-to-Xenium Mapping - Polygon-Based Alignment
+```{r mapping-step1-create-atac-polygons, message=FALSE}
+cat("\n=== MAPPING STEP 1: Create 10µm Square Polygons from ATAC Centroids ===\n")
+
+# Get ATAC metadata (already loaded in debug section)
+atac_meta <- pDataDT(g_atac)
+
+# Create 4 vertices per ATAC spot to define 10µm squares
+# dist = 5µm = half-width of 10µm edge
+dist <- 5
+
+# Build polygon data for all ATAC spots
+poly_list <- lapply(seq_len(nrow(atac_meta)), function(i) {
+  spot_id <- atac_meta$cell_ID[i]
+  x_center <- atac_meta$x[i]
+  y_center <- atac_meta$y[i]
+  
+  data.table(
+    x = c(x_center - dist, x_center + dist, x_center + dist, x_center - dist),
+    y = c(y_center - dist, y_center - dist, y_center + dist, y_center + dist),
+    poly_ID = spot_id
+  )
+})
+
+poly_dt <- rbindlist(poly_list)
+
+cat("Created polygon vertices for", nrow(atac_meta), "ATAC spots\n")
+cat("Total vertices:", nrow(poly_dt), "\n")
+
+# Create Giotto polygon object
+tryCatch({
+  atac_polygons <- createGiottoPolygonsFromDfr(
+    segmdfr = as.data.frame(poly_dt),
+    name = "atac_bins",
+    calc_centroids = TRUE,
+    verbose = FALSE
+  )
+  cat("✓ ATAC polygon object created\n")
+}, error = function(e) {
+  cat("✗ Error creating polygons:", e$message, "\n")
+  stop(e)
+})
+```
+
+```{r mapping-step2-add-xenium-boundaries, message=FALSE}
+cat("\n=== MAPPING STEP 2: Load Xenium Cell Boundaries ===\n")
+
+# Load Xenium cell boundaries from parquet file
+cell_bounds_path <- "/projectnb/paxlab/DATA/DriesSpatial/Xenium/output-XETG00253__0048833__488B__20241217__182301/cell_boundaries.parquet"
+
+tryCatch({
+  if (!file.exists(cell_bounds_path)) {
+    stop("Cell boundaries parquet file not found at:", cell_bounds_path)
+  }
+  
+  cell_bounds_df <- read_parquet(cell_bounds_path)
+  cell_bounds_dt <- as.data.table(cell_bounds_df)
+  
+  cat("✓ Loaded cell boundaries\n")
+  cat("  Dimensions:", nrow(cell_bounds_dt), "rows,", ncol(cell_bounds_dt), "columns\n")
+  cat("  Columns:", paste(colnames(cell_bounds_dt), collapse=", "), "\n")
+  
+  # Create sf polygons from boundaries
+  cell_polys_sf <- cell_bounds_dt %>%
+    group_by(poly_ID) %>%
+    summarise(
+      geometry = st_polygon(list(as.matrix(cur_data()[, .(x, y)]))),
+      .groups = "drop"
+    ) %>%
+    st_as_sf()
+  
+  cat("  Created", nrow(cell_polys_sf), "polygon objects from boundaries\n")
+  
+  # Convert to Giotto polygon format
+  cell_polygons <- as.polygons(cell_polys_sf, name = "cell")
+  
+  # Add to Xenium object
+  g_xenium <- addGiottoPolygons(
+    gobject = g_xenium,
+    gpolygons = list(cell = cell_polygons)
+  )
+  
+  cat("✓ Cell boundaries added to Xenium object\n")
+  
+}, error = function(e) {
+  cat("⚠ Warning: Could not load cell boundaries:", e$message, "\n")
+  cat("  Continuing without cell boundaries (mapping will use cell centroids)\n")
+})
+```
+
+```{r mapping-step3-add-atac-polygons, message=FALSE}
+cat("\n=== MAPPING STEP 3: Add ATAC Polygons to Xenium Object ===\n")
+
+tryCatch({
+  g_xenium <- addGiottoPolygons(
+    gobject = g_xenium,
+    gpolygons = list(atac_bins = atac_polygons)
+  )
+  
+  cat("✓ ATAC polygons added to Xenium object\n")
+  
+  # Verify polygons were added
+  poly_info <- getPolygonInfo(g_xenium)
+  cat("  Available polygons:\n")
+  print(poly_info)
+  
+}, error = function(e) {
+  cat("✗ Error adding ATAC polygons:", e$message, "\n")
+  stop(e)
+})
+```
+
+```{r mapping-step4-calculate-overlap, message=FALSE}
+cat("\n=== MAPPING STEP 4: Calculate Overlap Between Xenium Cells and ATAC Spots ===\n")
+
+tryCatch({
+  # Determine which spatial_info and feat_info to use based on available polygons
+  available_polys <- getPolygonInfo(g_xenium)
+  
+  spatial_info_use <- if ("cell" %in% rownames(available_polys)) "cell" else NULL
+  
+  if (!is.null(spatial_info_use)) {
+    g_xenium <- calculateOverlap(
+      x = g_xenium,
+      spatial_info = spatial_info_use,
+      feat_info = "rna",
+      name_overlap = "atac_overlap",
+      verbose = TRUE
+    )
+    cat("✓ Overlap calculated using cell boundaries\n")
+  } else {
+    cat("⚠ No cell boundaries available - using centroid-based mapping\n")
+    # Alternative: manually map cells to spots based on centroids
+    xenium_meta <- pDataDT(g_xenium)
+    
+    # For each Xenium cell, find which ATAC spot contains it
+    mapping_list <- lapply(seq_len(nrow(xenium_meta)), function(i) {
+      cell_x <- xenium_meta$x[i]
+      cell_y <- xenium_meta$y[i]
+      
+      # Check which ATAC polygon contains this point
+      for (j in seq_len(nrow(atac_meta))) {
+        if (abs(cell_x - atac_meta$x[j]) < dist && abs(cell_y - atac_meta$y[j]) < dist) {
+          return(atac_meta$cell_ID[j])
+        }
+      }
+      return(NA)
+    })
+    
+    xenium_meta$atac_overlap <- unlist(mapping_list)
+    cat("✓ Centroid-based mapping completed\n")
+  }
+  
+}, error = function(e) {
+  cat("⚠ Warning:", e$message, "\n")
+})
+```
+
+```{r mapping-step5-extract-results, message=FALSE}
+cat("\n=== MAPPING STEP 5: Extract and Analyze Mapping Results ===\n")
+
+# Extract mapping results
+mapping_results <- pDataDT(g_xenium)
+
+# Find overlap/mapping column
+overlap_col <- grep("atac|overlap", colnames(mapping_results), value = TRUE)[1]
+
+if (is.na(overlap_col)) {
+  cat("⚠ Warning: No overlap column found. Available columns:\n")
+  print(colnames(mapping_results))
+} else {
+  cat("Using overlap column:", overlap_col, "\n")
+  
+  # Calculate density statistics
+  density_stats <- mapping_results[
+    !is.na(get(overlap_col)),
+    .N,
+    by = get(overlap_col)
+  ]
+  
+  setnames(density_stats, c("atac_spot_id", "xenium_cells_per_spot"))
+  setorder(density_stats, -xenium_cells_per_spot)
+  
+  # Calculate summary metrics
+  total_mapped <- sum(!is.na(mapping_results[[overlap_col]]))
+  total_unmapped <- sum(is.na(mapping_results[[overlap_col]]))
+  occupied_spots <- nrow(density_stats)
+  empty_spots <- nrow(atac_meta) - occupied_spots
+  
+  cat("\n=== MAPPING SUMMARY ===\n")
+  cat("Total ATAC Spots:", nrow(atac_meta), "\n")
+  cat("Total Xenium Cells:", nrow(mapping_results), "\n")
+  cat("Xenium cells mapped to ATAC:", total_mapped, 
+      sprintf("(%.1f%%)", 100 * total_mapped / nrow(mapping_results)), "\n")
+  cat("Xenium cells unmapped:", total_unmapped, 
+      sprintf("(%.1f%%)", 100 * total_unmapped / nrow(mapping_results)), "\n")
+  cat("ATAC Spots with ≥1 Xenium cell:", occupied_spots, 
+      sprintf("(%.1f%%)", 100 * occupied_spots / nrow(atac_meta)), "\n")
+  cat("Empty ATAC Spots:", empty_spots, 
+      sprintf("(%.1f%%)", 100 * empty_spots / nrow(atac_meta)), "\n")
+  
+  cat("\n=== CELL DENSITY DISTRIBUTION ===\n")
+  print(summary(density_stats$xenium_cells_per_spot))
+  
+  cat("\nTop 10 densest ATAC spots:\n")
+  print(head(density_stats, 10))
+}
+```
+
+```{r mapping-step6-visualize, fig.width=14, fig.height=10, message=FALSE}
+cat("\n=== MAPPING STEP 6: Visualize Mapping Results ===\n")
+
+# Plot 1: Density histogram
+p_density <- ggplot(density_stats, aes(x = xenium_cells_per_spot)) +
+  geom_histogram(binwidth = 1, fill = "steelblue", color = "white", alpha = 0.7) +
+  geom_vline(aes(xintercept = mean(xenium_cells_per_spot)), color = "red", linetype = "dashed", size = 1) +
+  theme_minimal() +
+  labs(
+    title = "Xenium Cell Density Distribution per 10µm ATAC Spot",
+    subtitle = sprintf("Mean: %.2f cells/spot | Median: %.2f cells/spot", 
+                       mean(density_stats$xenium_cells_per_spot),
+                       median(density_stats$xenium_cells_per_spot)),
+    x = "Number of Xenium Cells per ATAC Spot",
+    y = "Number of ATAC Spots",
+    caption = "Expected: most spots have 0-2 cells given 10µm size and Xenium resolution"
+  ) +
+  theme(plot.title = element_text(face = "bold", size = 12),
+        plot.subtitle = element_text(size = 10))
+
+print(p_density)
+ggsave(file.path(output.path, "04_mapping_density_histogram.png"), p_density, width = 10, height = 6, dpi = 150)
+cat("✓ Saved: 04_mapping_density_histogram.png\n")
+
+# Plot 2: Spatial distribution of mapped vs unmapped cells
+if (atac_has_coords && xenium_has_coords) {
+  mapping_results$mapping_status <- ifelse(is.na(mapping_results[[overlap_col]]), "Unmapped", "Mapped")
+  
+  p_spatial <- ggplot(mapping_results, aes(x = x, y = y, color = mapping_status)) +
+    geom_point(size = 1.5, alpha = 0.6) +
+    scale_color_manual(values = c("Mapped" = "green", "Unmapped" = "red")) +
+    geom_point(data = atac_meta, aes(x = x, y = y), color = "blue", size = 2.5, 
+               shape = 3, alpha = 0.4, stroke = 1, inherit.aes = FALSE) +
+    coord_fixed() +
+    theme_minimal() +
+    labs(
+      title = "Xenium Cells: Mapped vs Unmapped to ATAC Spots",
+      subtitle = "Blue X = ATAC spot centroids",
+      x = "X Coordinate (µm)",
+      y = "Y Coordinate (µm)",
+      color = "Status"
+    ) +
+    theme(plot.title = element_text(face = "bold"))
+  
+  print(p_spatial)
+  ggsave(file.path(output.path, "05_mapping_spatial_distribution.png"), p_spatial, width = 10, height = 10, dpi = 150)
+  cat("✓ Saved: 05_mapping_spatial_distribution.png\n")
+}
+```
+
+```{r mapping-step7-save-results, message=FALSE}
+cat("\n=== MAPPING STEP 7: Save Results ===\n")
+
+# Save detailed mapping results
+output_mapping <- file.path(output.path, "xenium_to_atac_mapping.csv")
+fwrite(mapping_results, output_mapping)
+cat("✓ Saved detailed mapping to:", output_mapping, "\n")
+
+# Save density statistics
+output_density <- file.path(output.path, "atac_spot_density_stats.csv")
+fwrite(density_stats, output_density)
+cat("✓ Saved density statistics to:", output_density, "\n")
+
+# Create summary report
+summary_report <- data.frame(
+  Metric = c(
+    "Total ATAC Spots",
+    "Total Xenium Cells",
+    "Xenium Cells Mapped",
+    "Xenium Cells Unmapped",
+    "ATAC Spots Occupied",
+    "ATAC Spots Empty",
+    "Mean Cells per Spot",
+    "Median Cells per Spot",
+    "Max Cells in Single Spot"
+  ),
+  Value = c(
+    nrow(atac_meta),
+    nrow(mapping_results),
+    total_mapped,
+    total_unmapped,
+    occupied_spots,
+    empty_spots,
+    round(mean(density_stats$xenium_cells_per_spot), 2),
+    round(median(density_stats$xenium_cells_per_spot), 2),
+    max(density_stats$xenium_cells_per_spot)
+  )
+)
+
+output_summary <- file.path(output.path, "mapping_summary_report.csv")
+fwrite(as.data.table(summary_report), output_summary)
+cat("✓ Saved summary report to:", output_summary, "\n")
+
+cat("\n=== ALL OUTPUTS SAVED ===\n")
+cat("Output directory:", output.path, "\n")
+```
+
+## Section 4: Post-Processing - Validation Checks
+
+
+
+
+
+
+
+```{r validation-checks, message=FALSE}
+cat("\n=== VALIDATION CHECKS ===\n")
+
+# Check 1: Verify mapping coverage
+if (exists("total_mapped") && exists("total_unmapped")) {
+  mapping_pct <- 100 * total_mapped / nrow(mapping_results)
+  if (mapping_pct > 90) {
+    cat("✓ PASS: >90% of Xenium cells are mapped to ATAC spots\n")
+  } else if (mapping_pct > 50) {
+    cat("⚠ CAUTION: Only", round(mapping_pct, 1), "% of Xenium cells mapped\n")
+  } else {
+    cat("✗ FAIL: <50% of Xenium cells mapped (possible alignment issue)\n")
+  }
+}
+
+# Check 2: Verify spot occupancy
+if (exists("occupied_spots") && exists("empty_spots")) {
+  occupancy_pct <- 100 * occupied_spots / nrow(atac_meta)
+  if (occupancy_pct > 70) {
+    cat("✓ PASS: >70% of ATAC spots have at least 1 Xenium cell\n")
+  } else if (occupancy_pct > 30) {
+    cat("⚠ CAUTION:", round(occupancy_pct, 1), "% of ATAC spots occupied\n")
+  } else {
+    cat("✗ FAIL: <30% of ATAC spots have cells (possible misalignment)\n")
+  }
+}
+
+# Check 3: Verify cell density is reasonable
+if (exists("density_stats") && nrow(density_stats) > 0) {
+  mean_density <- mean(density_stats$xenium_cells_per_spot)
+  if (mean_density > 0.5 && mean_density < 10) {
+    cat("✓ PASS: Mean cell density", round(mean_density, 2), 
+        "cells/spot is reasonable for 10µm spots\n")
+  } else if (mean_density > 0) {
+    cat("⚠ CAUTION: Mean density", round(mean_density, 2), 
+        "cells/spot may indicate sub-optimal alignment\n")
+  } else {
+    cat("✗ FAIL: No cells mapped to any ATAC spot\n")
+  }
+}
+
+cat("\n=== END OF ANALYSIS ===\n")
+cat("Review diagnostic plots and CSV files in:", output.path, "\n")
+cat("\nNext steps:\n")
+cat("1. Review overlay plots (01_debug_overlay_all.png, 02_debug_atac_spots.png, 03_debug_xenium_cells.png)\n")
+cat("2. Check mapping quality plots (04_mapping_density_histogram.png, 05_mapping_spatial_distribution.png)\n")
+cat("3. Review CSV files for detailed mapping results and statistics\n")
+cat("4. If alignment is poor, adjust MOSAICField parameters and re-run\n")
+```
+
+## Session Info
+
+```{r session-info}
+sessionInfo()
+```

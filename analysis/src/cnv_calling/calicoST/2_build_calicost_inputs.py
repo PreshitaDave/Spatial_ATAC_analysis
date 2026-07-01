@@ -63,6 +63,19 @@ def parse_args():
                    help="Log phase shift parameter for CalicoST (default: -2.0)")
     p.add_argument("--maxspots-pooling", type=int, default=7,
                    help="Max spots pooled in HMRF smooth_mat (default: 7)")
+    p.add_argument("--aggregate-k", type=int, default=1,
+                   help="Aggregate k spatially adjacent spots into super-spots before building "
+                        "inputs (default: 1 = no aggregation). Uses k-means spatial clustering.")
+    p.add_argument("--allele-file", type=str, default=None,
+                   help="Override default allele counts file path "
+                        "(default: <numbat_inputs>/<tissue>/pileup_phase/<tissue>_allele_counts.tsv.gz)")
+    p.add_argument("--normalidx-file", type=str, default=None,
+                   help="When --aggregate-k > 1, path to original per-spot normal barcodes. "
+                        "Super-spots with ≥50%% normal members will be written to "
+                        "<out_dir>/superspot_normal_barcodes.csv.")
+    p.add_argument("--output-dir", type=str, default=None,
+                   help="Override default parsed_inputs output directory "
+                        "(default: Data/04_analysis/cnv/calicoST/<tissue>/parsed_inputs)")
     return p.parse_args()
 
 
@@ -79,6 +92,101 @@ def load_calicost_utils():
         logger.error(f"Cannot import CalicoST utilities: {e}")
         logger.error(f"Ensure CALICOST_SRC={CALICOST_SRC} is correct and env is activated.")
         sys.exit(1)
+
+
+# ============================================================================
+# Spot aggregation: k-means spatial super-spots
+# ============================================================================
+
+def aggregate_spots(barcodes, bare_barcodes, spatial_df, tile_mat, allele_df, k,
+                    normalidx_file=None, out_dir=None, random_state=42):
+    """
+    Aggregate individual ATAC spots into super-spots by k-means spatial clustering.
+
+    For each of ceil(n_spots/k) clusters the representative spot (closest to centroid)
+    becomes the super-spot barcode. Allele counts and tile counts are summed within
+    each cluster.  If normalidx_file is provided, writes superspot_normal_barcodes.csv
+    (clusters where ≥50 % of member spots are in the normal set).
+
+    Returns:
+        agg_barcodes, agg_bare, agg_tile_mat, agg_allele_df, agg_spatial_df, assign_df
+    """
+    from sklearn.cluster import KMeans
+
+    spatial_indexed = spatial_df.set_index("archr_barcode")
+    coords = np.array([
+        [float(spatial_indexed.loc[bc, "x_spatial"]) if bc in spatial_indexed.index else 0.0,
+         float(spatial_indexed.loc[bc, "y_spatial"]) if bc in spatial_indexed.index else 0.0]
+        for bc in barcodes
+    ])
+
+    n_spots = len(barcodes)
+    n_clusters = max(1, int(np.ceil(n_spots / k)))
+    logger.info(f"  K-means: {n_spots} spots → {n_clusters} super-spots (k={k})")
+
+    km = KMeans(n_clusters=n_clusters, random_state=random_state, n_init=10)
+    labels = km.fit_predict(coords)
+
+    agg_barcodes, agg_bare, agg_coords_list, members_list = [], [], [], []
+    for c in range(n_clusters):
+        idx = np.where(labels == c)[0]
+        cent = coords[idx].mean(axis=0)
+        rep = idx[np.argmin(np.linalg.norm(coords[idx] - cent, axis=1))]
+        agg_barcodes.append(barcodes[rep])
+        agg_bare.append(bare_barcodes[rep])
+        agg_coords_list.append(cent)
+        members_list.append(idx.tolist())
+
+    # Sum tile_mat columns per cluster → (tiles × n_clusters)
+    tile_csc = tile_mat.tocsc()
+    agg_tile_cols = [
+        np.asarray(tile_csc[:, mlist].sum(axis=1)).flatten()
+        for mlist in members_list
+    ]
+    agg_tile_mat = sp.csc_matrix(np.column_stack(agg_tile_cols))
+
+    # Remap allele_df cells to super-spot representative bare barcodes, then sum by groupby
+    bare_to_rep = {bare_barcodes[i]: agg_bare[labels[i]] for i in range(n_spots)}
+    agg_allele_df = allele_df.copy()
+    agg_allele_df["cell"] = agg_allele_df["cell"].map(bare_to_rep)
+    agg_allele_df = agg_allele_df.dropna(subset=["cell"])
+
+    # Aggregated spatial_df for build_adjacency
+    agg_coords_arr = np.array(agg_coords_list)
+    agg_spatial_df = pd.DataFrame({
+        "archr_barcode": agg_barcodes,
+        "bare_barcode":  agg_bare,
+        "x_spatial":     agg_coords_arr[:, 0],
+        "y_spatial":     agg_coords_arr[:, 1],
+    })
+
+    # Per-spot assignment table (used by downstream normal-barcode remapping)
+    assign_df = pd.DataFrame({
+        "original_barcode": barcodes,
+        "original_bare":    bare_barcodes,
+        "superspot_barcode": [agg_barcodes[labels[i]] for i in range(n_spots)],
+        "cluster_id":        labels,
+    })
+
+    if out_dir:
+        assign_df.to_csv(f"{out_dir}/superspot_assignments.csv", index=False)
+        logger.info(f"  Saved superspot_assignments.csv")
+
+    # Optional: compute super-spot normal barcodes
+    if normalidx_file and out_dir:
+        with open(normalidx_file) as fh:
+            normal_set = set(line.strip() for line in fh if line.strip())
+        superspot_normals = []
+        for c, mlist in enumerate(members_list):
+            n_normal = sum(1 for m in mlist if barcodes[m] in normal_set)
+            if n_normal / len(mlist) >= 0.5:
+                superspot_normals.append(agg_barcodes[c])
+        out_normal = f"{out_dir}/superspot_normal_barcodes.csv"
+        with open(out_normal, "w") as fh:
+            fh.write("\n".join(superspot_normals) + "\n")
+        logger.info(f"  Saved {len(superspot_normals)} normal super-spots → {out_normal}")
+
+    return agg_barcodes, agg_bare, agg_tile_mat, agg_allele_df, agg_spatial_df, assign_df
 
 
 # ============================================================================
@@ -391,7 +499,7 @@ def annotate_bins_with_genes(bin_df, hgt, ig_genes, hla_regions):
 # ============================================================================
 
 def build_adjacency(spatial_df, barcodes, tot_mat, exp_mat, multislice_adjacency_fn,
-                    maxspots_pooling, construct_adjacency_w):
+                    maxspots_pooling, construct_adjacency_w, tissue="sample"):
     """
     Build hexagonal-grid adjacency and KNN smooth matrices.
     Uses array_row/array_col for hexagonal grid construction.
@@ -427,7 +535,7 @@ def build_adjacency(spatial_df, barcodes, tot_mat, exp_mat, multislice_adjacency
     single_total_bb_RD = sp.csc_matrix(tot_mat)
 
     sample_ids   = np.zeros(n_cells, dtype=int)
-    sample_list  = ["lowseq_489"]
+    sample_list  = [tissue]
 
     try:
         adjacency_mat, smooth_mat = multislice_adjacency_fn(
@@ -479,9 +587,11 @@ def main():
 
     # Paths
     inter_dir       = f"{PROJECT_ROOT}/Data/04_analysis/cnv/calicoST/{tissue}/intermediate"
-    out_dir         = f"{PROJECT_ROOT}/Data/04_analysis/cnv/calicoST/{tissue}/parsed_inputs"
-    allele_file     = (f"{PROJECT_ROOT}/Data/04_analysis/cnv/numbat/inputs/"
-                       f"{tissue}/pileup_phase/{tissue}_allele_counts.tsv.gz")
+    out_dir         = args.output_dir or f"{PROJECT_ROOT}/Data/04_analysis/cnv/calicoST/{tissue}/parsed_inputs"
+    allele_file     = args.allele_file or (
+                          f"{PROJECT_ROOT}/Data/04_analysis/cnv/numbat/inputs/"
+                          f"{tissue}/pileup_phase/{tissue}_allele_counts.tsv.gz"
+                      )
     geneticmap_file = f"{CALICOST_DIR}/GRCh38_resources/genetic_map_GRCh38_merged.tab.gz"
     hgtable_file    = f"{CALICOST_DIR}/GRCh38_resources/hgTables_hg38_gencode.txt"
     ig_gene_file    = f"{CALICOST_DIR}/GRCh38_resources/ig_gene_list.txt"
@@ -501,6 +611,18 @@ def main():
     allele_df = load_allele_counts(allele_file, bare_barcodes)
     hgt       = load_hgtable(hgtable_file)
     ig_genes, hla_regions = load_filter_lists(ig_gene_file, hla_bed_file)
+
+    # --- Optional: k-NN spot aggregation (super-spots) ---
+    if args.aggregate_k > 1:
+        logger.info(f"=== Spot aggregation: k={args.aggregate_k} ===")
+        (barcodes, bare_barcodes, tile_mat, allele_df,
+         spatial_df, _) = aggregate_spots(
+            barcodes, bare_barcodes, spatial_df, tile_mat, allele_df,
+            k=args.aggregate_k,
+            normalidx_file=args.normalidx_file,
+            out_dir=out_dir,
+        )
+        logger.info(f"  Aggregated to {len(barcodes)} super-spots")
 
     # --- Genomic bins ---
     bin_df = build_snp_bins(allele_df, args.snps_per_bin, args.min_bin_size_bp)
@@ -600,7 +722,7 @@ def main():
     # ============================================================
     adjacency_mat, smooth_mat, exp_counts_df = build_adjacency(
         spatial_df, barcodes, tot_mat, exp_mat, multislice_adj,
-        args.maxspots_pooling, construct_adjacency_w=1.0
+        args.maxspots_pooling, construct_adjacency_w=1.0, tissue=tissue
     )
 
     # ============================================================
@@ -616,21 +738,35 @@ def main():
     exp_counts_df.to_pickle(f"{out_dir}/exp_counts.pkl")
 
     # Also save gene_snp_info (needed by load_tables_to_matrices if called)
-    # Build minimal df_gene_snp from bin_df
-    # gene column must match exp_counts column names (bin_0, bin_1, ...) so that
-    # genesnp_to_bininfo → filter_de_genes_tri correctly maps ATAC bin counts.
+    # CalicoST requires df_gene_snp to have an 'is_interval' column:
+    #   is_interval=True  → gene-level interval row (one per bin)
+    #   is_interval=False → SNP-level row
+    # gene column uses bin names (bin_0, bin_1, ...) to match exp_counts columns.
     df_gene_snp_rows = []
     for _, brow in bin_df.iterrows():
         bin_col_name = f"bin_{int(brow['bin_id'])}"
+        # One gene-interval row per bin
+        df_gene_snp_rows.append({
+            "bin_id":      brow["bin_id"],
+            "CHR":         brow["CHR"],
+            "START":       brow["START"],
+            "END":         brow["END"],
+            "snp_id":      None,
+            "gene":        bin_col_name,
+            "block_id":    None,
+            "is_interval": True,
+        })
+        # One SNP row per SNP in this bin
         for sid in brow["snp_ids"]:
             df_gene_snp_rows.append({
-                "bin_id": brow["bin_id"],
-                "CHR":    brow["CHR"],
-                "START":  brow["START"],
-                "END":    brow["END"],
-                "snp_id": sid,
-                "gene":   bin_col_name,
-                "block_id": None,
+                "bin_id":      brow["bin_id"],
+                "CHR":         brow["CHR"],
+                "START":       brow["START"],
+                "END":         brow["END"],
+                "snp_id":      sid,
+                "gene":        bin_col_name,
+                "block_id":    None,
+                "is_interval": False,
             })
     df_gene_snp = pd.DataFrame(df_gene_snp_rows)
     df_gene_snp.to_csv(f"{out_dir}/gene_snp_info.csv.gz", index=False, sep="\t")

@@ -1,0 +1,13 @@
+Tissue: deepseq_489
+Tilesize: 500 bp
+Binarize: FALSE
+Cells: 3987
+Tiles: 6062095
+Non-zero elements: 256716314
+Density: 0.010621
+Sparsity: 0.9894 (98.94%)
+Mean tiles per cell: 110612.16
+Median tiles per cell: 110587.0
+Mean cells per tile: 72.7489
+Median cells per tile: 52.0
+

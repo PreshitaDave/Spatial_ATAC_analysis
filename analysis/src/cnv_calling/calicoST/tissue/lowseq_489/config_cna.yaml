@@ -10,7 +10,7 @@ snp_dir : /projectnb/paxlab/presh/projects/spatial_atac/Data/04_analysis/cnv/cal
 output_dir : /projectnb/paxlab/presh/projects/spatial_atac/Data/04_analysis/cnv/calicoST/lowseq_489/cna
 
 # Purity estimates from 3_run_purity.py — update path after purity run completes
-tumorprop_file : /projectnb/paxlab/presh/projects/spatial_atac/Data/04_analysis/cnv/calicoST/lowseq_489/purity/clone5_rectangle0_w1.0/tumorprop_spots.tsv
+tumorprop_file : None
 
 # --- Reference files ---
 geneticmap_file : /projectnb/paxlab/presh/software/CalicoST/GRCh38_resources/genetic_map_GRCh38_merged.tab.gz

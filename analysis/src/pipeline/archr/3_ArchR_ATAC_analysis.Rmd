@@ -934,6 +934,7 @@ tiss_488B.proj3 <- loadArchRProject('/projectnb/paxlab/presh/Data')
 
 pathToMacs2 = findMacs2()
 
+
 tiss_488B.proj3 <- addReproduciblePeakSet(
     ArchRProj = tiss_488B.proj3, 
     groupBy = "Clusters_tile", 

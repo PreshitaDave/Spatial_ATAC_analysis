@@ -1,0 +1,48 @@
+================================================================================
+SPATIAL ATAC-SEQ PER-TILE COUNT DISTRIBUTION ANALYSIS
+================================================================================
+
+Tissue: lowseq_489 | Tile Size: 500 bp | Date: 2026-06-22 19:02:32
+
+KEY FINDINGS
+-                                                                                
+
+Total informative tiles (sum >= 10): 4815548 / 6062095 (79.4%)
+
+Dispersion Classification (Chi-squared test vs Poisson null, p=0.05):
+  Overdispersed (D > 1.2): 99.9% of tiles
+  Poisson-consistent (0.8 <= D <= 1.2): 0.0% of tiles
+  Underdispersed (D < 0.8): 0.0% of tiles
+
+Negative Binomial Dispersion Parameter (alpha, method-of-moments): 133.737513
+  (Interpretation: For NB, Var[X] = mu + alpha*mu^2)
+
+INTERPRETATION
+-                                                                                
+
+STRONG EVIDENCE FOR NEGATIVE BINOMIAL DISTRIBUTION
+
+Nearly all tiles show statistically significant overdispersion (variance > mean),
+inconsistent with Poisson and highly consistent with Negative Binomial. This
+validates the RNA-seq literature finding (Robinson & Smyth 2007, edgeR;
+Anders & Huber 2010, DESeq; Love et al. 2014, DESeq2) that sequencing count
+data exhibit overdispersion from biological and technical variance.
+
+REFERENCES
+-                                                                                
+
+1. Robinson MD, Smyth GK. (2007) Bioinformatics 23:2881-2887.
+   Foundational NB modeling of sequencing counts (edgeR).
+
+2. Anders S, Huber W. (2010) Genome Biol 11:R106.
+   DESeq NB framework and mean-variance diagnostic approach.
+
+3. Love MI, Huber W, Anders S. (2014) Genome Biol 15:550.
+   DESeq2 and plotDispEsts-style mean-variance diagnostic.
+
+4. Lun ATL, Smyth GK. (2016) NAR 44:e45.
+   csaw: applying NB window-binning to ChIP/ATAC genomic windows.
+
+5. Buenrostro JD, et al. (2015) Nature 523:486-490.
+   Original scATAC-seq paper; diploid sparsity basis for NB interpretation.
+

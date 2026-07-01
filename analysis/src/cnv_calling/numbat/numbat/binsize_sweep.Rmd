@@ -1,0 +1,482 @@
+---
+title: "R Notebook"
+
+---
+
+## testing out different bin sizes and what information is contained by them 
+```{r}
+library(data.table)
+library(Matrix)
+
+setDTthreads(max(1, parallel::detectCores() - 1))
+```
+
+
+```{r}
+parse_numbat_bins <- function(allele_bin_df) {
+  bins <- rownames(allele_bin_df)
+
+  x <- data.table(bin_id = bins)
+  x[, CHROM := sub(":.*", "", bin_id)]
+  x[, START := as.integer(sub(".*:(.*)-.*", "\\1", bin_id))]
+  x[, END := as.integer(sub(".*-", "", bin_id))]
+  x[, CHROM := sub("^chr", "", CHROM)]
+
+  x[]
+}
+```
+
+
+
+
+```{r}
+prepare_native_baf_counts <- function(allele_bin_df, snp_df) {
+  native <- make_phased_snp_bin_counts(
+    snp_df = snp_df,
+    allele_bin_df = allele_bin_df
+  )
+
+  native <- as.data.table(native)
+
+  bins <- parse_numbat_bins(allele_bin_df)
+  bins <- as.data.table(bins)
+  setorder(bins, CHROM, START)
+
+  bins[, bin_index := seq_len(.N), by = CHROM]
+
+  native <- merge(
+    native,
+    bins[, .(bin_id, CHROM, START, END, bin_index)],
+    by = "bin_id",
+    all.x = TRUE
+  )
+
+  native[, hap1_count := as.numeric(hap1_count)]
+  native[, hap2_count := as.numeric(hap2_count)]
+  native[, n_snps := as.integer(n_snps)]
+  native[, native_total := hap1_count + hap2_count]
+
+  native <- native[native_total > 0 & !is.na(bin_index)]
+
+  setkey(native, CHROM, bin_index, cell)
+
+  native[]
+}
+```
+
+
+```{r}
+native_baf <- prepare_native_baf_counts(
+  allele_bin_df = allele_bin_df,
+  snp_df = snp_df
+)
+```
+
+
+
+```{r}
+evaluate_allele_dropout_by_binsize_fast <- function(
+  native_baf,
+  bins_per_superbin_grid = c(1, 2, 5, 10, 20, 50, 100),
+  min_depth = 10,
+  min_snps = 3,
+  dropout_minor_frac = 0.05,
+  min_usable_superbins_per_spot = 20
+) {
+  all_summary <- vector("list", length(bins_per_superbin_grid))
+  all_spot_summary <- vector("list", length(bins_per_superbin_grid))
+
+  for (ii in seq_along(bins_per_superbin_grid)) {
+    b <- bins_per_superbin_grid[ii]
+    message("Evaluating bins_per_superbin = ", b)
+
+    x <- copy(native_baf)
+
+    x[, superbin_index := ceiling(bin_index / b)]
+
+    if (b == 1) {
+      super <- x[, .(
+        hap1_count = as.numeric(hap1_count),
+        hap2_count = as.numeric(hap2_count),
+        snp_depth = as.numeric(hap1_count + hap2_count),
+        n_snps = as.integer(n_snps),
+        n_native_bins = as.integer(1)
+      ), by = .(cell, CHROM, superbin_index)]
+    } else {
+      super <- x[, .(
+        hap1_count = as.numeric(sum(hap1_count, na.rm = TRUE)),
+        hap2_count = as.numeric(sum(hap2_count, na.rm = TRUE)),
+        snp_depth = as.numeric(sum(hap1_count + hap2_count, na.rm = TRUE)),
+        n_snps = as.integer(sum(n_snps, na.rm = TRUE)),
+        n_native_bins = as.integer(uniqueN(bin_id))
+      ), by = .(cell, CHROM, superbin_index)]
+    }
+
+    super[, total := as.numeric(hap1_count + hap2_count)]
+    super <- super[total > 0]
+
+    super[, minor_count := pmin(hap1_count, hap2_count)]
+    super[, minor_frac := minor_count / total]
+    super[, baf := hap2_count / total]
+
+    usable_x <- super[
+      total >= min_depth &
+        n_snps >= min_snps
+    ]
+
+    if (nrow(usable_x) == 0) {
+      all_summary[[ii]] <- data.table(
+        bins_per_superbin = b,
+        n_spots_total = uniqueN(super$cell),
+        n_spots_passing = 0L,
+        n_usable_observations = 0L,
+        median_usable_superbins_per_spot = NA_real_,
+        median_total_snp_depth_per_spot = NA_real_,
+        median_superbin_depth = NA_real_,
+        median_snps_per_superbin = NA_real_,
+        observed_dropout_rate = NA_real_,
+        expected_dropout_rate = NA_real_,
+        excess_dropout_rate = NA_real_,
+        median_minor_frac = NA_real_,
+        mean_abs_baf_dev = NA_real_
+      )
+      next
+    }
+
+    usable_x[, observed_dropout := minor_frac <= dropout_minor_frac]
+
+    usable_x[, dropout_k := floor(dropout_minor_frac * total)]
+    usable_x[, expected_dropout_prob := 2 * pbinom(dropout_k, size = total, prob = 0.5)]
+    usable_x[, expected_dropout_prob := pmin(expected_dropout_prob, 1)]
+
+    spot_summary <- usable_x[, .(
+      n_usable_superbins = as.integer(.N),
+      total_snp_depth = as.numeric(sum(total, na.rm = TRUE)),
+      median_superbin_depth = as.numeric(median(total, na.rm = TRUE)),
+      median_n_snps = as.numeric(median(n_snps, na.rm = TRUE)),
+      observed_dropout_rate = as.numeric(mean(observed_dropout, na.rm = TRUE)),
+      expected_dropout_rate = as.numeric(mean(expected_dropout_prob, na.rm = TRUE)),
+      excess_dropout_rate = as.numeric(
+        mean(observed_dropout, na.rm = TRUE) -
+          mean(expected_dropout_prob, na.rm = TRUE)
+      ),
+      median_minor_frac = as.numeric(median(minor_frac, na.rm = TRUE)),
+      mean_abs_baf_dev = as.numeric(weighted.mean(abs(baf - 0.5), total, na.rm = TRUE))
+    ), by = cell]
+
+    spot_summary[, bins_per_superbin := as.integer(b)]
+
+    keep_spots <- spot_summary[
+      n_usable_superbins >= min_usable_superbins_per_spot
+    ]
+
+    global_summary <- data.table(
+      bins_per_superbin = as.integer(b),
+      n_spots_total = as.integer(uniqueN(super$cell)),
+      n_spots_passing = as.integer(nrow(keep_spots)),
+      n_usable_observations = as.integer(nrow(usable_x)),
+      median_usable_superbins_per_spot = as.numeric(median(spot_summary$n_usable_superbins, na.rm = TRUE)),
+      median_total_snp_depth_per_spot = as.numeric(median(spot_summary$total_snp_depth, na.rm = TRUE)),
+      median_superbin_depth = as.numeric(median(usable_x$total, na.rm = TRUE)),
+      median_snps_per_superbin = as.numeric(median(usable_x$n_snps, na.rm = TRUE)),
+      observed_dropout_rate = as.numeric(mean(usable_x$observed_dropout, na.rm = TRUE)),
+      expected_dropout_rate = as.numeric(mean(usable_x$expected_dropout_prob, na.rm = TRUE)),
+      excess_dropout_rate = as.numeric(
+        mean(usable_x$observed_dropout, na.rm = TRUE) -
+          mean(usable_x$expected_dropout_prob, na.rm = TRUE)
+      ),
+      median_minor_frac = as.numeric(median(usable_x$minor_frac, na.rm = TRUE)),
+      mean_abs_baf_dev = as.numeric(weighted.mean(abs(usable_x$baf - 0.5), usable_x$total, na.rm = TRUE))
+    )
+
+    all_summary[[ii]] <- global_summary
+    all_spot_summary[[ii]] <- spot_summary
+  }
+
+  list(
+    global = rbindlist(all_summary, fill = TRUE),
+    per_spot = rbindlist(all_spot_summary, fill = TRUE)
+  )
+}
+
+dropout_res <- evaluate_allele_dropout_by_binsize_fast(
+  native_baf = native_baf,
+  bins_per_superbin_grid = c(1, 2, 5, 10, 20, 50, 100),
+  min_depth = 10,
+  min_snps = 3,
+  dropout_minor_frac = 0.05,
+  min_usable_superbins_per_spot = 20
+)
+
+dropout_res$global
+
+saveRDS(dropout_res, '/projectnb/paxlab/presh/projects/spatial_atac/analysis/src/cnv_calling/numbat/numbat/dropout_res.rds')
+```
+
+```{r}
+plot_dropout_binsize_diagnostics <- function(dropout_res) {
+  g <- dropout_res$global
+
+  p1 <- ggplot(g, aes(bins_per_superbin, excess_dropout_rate)) +
+    geom_line() +
+    geom_point(size = 2) +
+    scale_x_log10() +
+    theme_bw() +
+    labs(
+      title = "Excess allele dropout versus bin size",
+      x = "Native Numbat bins pooled per superbin",
+      y = "Observed dropout - expected binomial dropout"
+    )
+
+  p2 <- ggplot(g, aes(bins_per_superbin, n_spots_passing)) +
+    geom_line() +
+    geom_point(size = 2) +
+    scale_x_log10() +
+    theme_bw() +
+    labs(
+      title = "Spots retained versus bin size",
+      x = "Native Numbat bins pooled per superbin",
+      y = "Number of spots passing coverage"
+    )
+
+  p3 <- ggplot(g, aes(bins_per_superbin, median_usable_superbins_per_spot)) +
+    geom_line() +
+    geom_point(size = 2) +
+    scale_x_log10() +
+    theme_bw() +
+    labs(
+      title = "Usable genomic bins per spot",
+      x = "Native Numbat bins pooled per superbin",
+      y = "Median usable superbins per spot"
+    )
+
+  p4 <- ggplot(g, aes(bins_per_superbin, median_superbin_depth)) +
+    geom_line() +
+    geom_point(size = 2) +
+    scale_x_log10() +
+    theme_bw() +
+    labs(
+      title = "SNP depth per superbin",
+      x = "Native Numbat bins pooled per superbin",
+      y = "Median SNP depth"
+    )
+
+  print(p1)
+  print(p2)
+  print(p3)
+  print(p4)
+}
+```
+
+```{r}
+pdf("allele_dropout_binsize_diagnostics.pdf", width = 8, height = 6)
+plot_dropout_binsize_diagnostics(dropout_res)
+dev.off()
+```
+
+```{r}
+library(patchwork)
+p1+p2+p3+p4
+```
+
+
+```{r}
+choose_optimal_binsize <- function(
+  dropout_res,
+  max_excess_dropout = 0.05,
+  min_spots_passing_frac = 0.70,
+  min_usable_superbins_per_spot = 30,
+  min_median_superbin_depth = 20
+) {
+  g <- copy(dropout_res$global)
+
+  max_spots <- max(g$n_spots_total, na.rm = TRUE)
+
+  candidates <- g[
+    excess_dropout_rate <= max_excess_dropout &
+      n_spots_passing >= min_spots_passing_frac * max_spots &
+      median_usable_superbins_per_spot >= min_usable_superbins_per_spot &
+      median_superbin_depth >= min_median_superbin_depth
+  ]
+
+  if (nrow(candidates) == 0) {
+    warning("No bin size passed all thresholds. Returning closest compromise.")
+    g[, rank_score :=
+        rank(excess_dropout_rate, ties.method = "average") -
+        rank(n_spots_passing, ties.method = "average") -
+        rank(median_usable_superbins_per_spot, ties.method = "average")]
+    return(g[order(rank_score)][1])
+  }
+
+  candidates[order(bins_per_superbin)][1]
+}
+
+optimal <- choose_optimal_binsize(
+  dropout_res,
+  max_excess_dropout = 0.05,
+  min_spots_passing_frac = 0.70,
+  min_usable_superbins_per_spot = 30,
+  min_median_superbin_depth = 20
+)
+
+optimal
+```
+
+
+## checking the size of the bins
+
+```{r}
+compute_superbin_sizes <- function(allele_bin_df, bins_per_superbin = 20) {
+  library(data.table)
+
+  bins <- parse_numbat_bins(allele_bin_df)
+  bins <- as.data.table(bins)
+
+  setorder(bins, CHROM, START)
+
+  bins[, native_bin_size := END - START]
+  bins[, superbin_index := ceiling(seq_len(.N) / bins_per_superbin), by = CHROM]
+  bins[, superbin_id := paste0(CHROM, "_superbin_", superbin_index)]
+
+  superbins <- bins[, .(
+    CHROM = CHROM[1],
+    START = min(START),
+    END = max(END),
+    n_native_bins = .N,
+    superbin_size_bp = max(END) - min(START),
+    median_native_bin_size_bp = median(native_bin_size)
+  ), by = superbin_id]
+
+  list(
+    summary = data.frame(
+      bins_per_superbin = bins_per_superbin,
+      n_superbins = nrow(superbins),
+      median_superbin_size_bp = median(superbins$superbin_size_bp),
+      mean_superbin_size_bp = mean(superbins$superbin_size_bp),
+      min_superbin_size_bp = min(superbins$superbin_size_bp),
+      max_superbin_size_bp = max(superbins$superbin_size_bp),
+      median_superbin_size_mb = median(superbins$superbin_size_bp) / 1e6
+    ),
+    superbins = superbins
+  )
+}
+
+compute_superbin_size_grid <- function(
+  allele_bin_df,
+  bins_per_superbin_grid = c(1, 2, 5, 10, 20, 50, 100, 200)
+) {
+  library(data.table)
+
+  out <- lapply(bins_per_superbin_grid, function(b) {
+    compute_superbin_sizes(
+      allele_bin_df = allele_bin_df,
+      bins_per_superbin = b
+    )$summary
+  })
+
+  rbindlist(out)
+}
+
+
+
+superbin_size_summary <- compute_superbin_size_grid(
+  allele_bin_df = allele_bin_df,
+  bins_per_superbin_grid = c(1, 2, 5, 10, 20, 50, 100, 200)
+)
+
+superbin_size_summary
+```
+
+## making rds for 2.2Mb bins 
+
+```{r}
+library(GenomicRanges)
+library(IRanges)
+
+make_var2200kb_from_var220 <- function(
+  var220,
+  bins_per_group = 10,
+  out_rds = "var2200kb.rds",
+  out_hist = "var2200kb_bin_size_hist.pdf"
+) {
+  stopifnot(inherits(var220, "GRanges"))
+
+  var220 <- sortSeqlevels(var220)
+  var220 <- sort(var220)
+
+  gr_list <- split(var220, seqnames(var220))
+
+  pooled <- lapply(gr_list, function(gr) {
+    n <- length(gr)
+    group_id <- ceiling(seq_len(n) / bins_per_group)
+
+    out <- GRanges(
+      seqnames = as.character(seqnames(gr))[1],
+      ranges = IRanges(
+        start = tapply(start(gr), group_id, min),
+        end = tapply(end(gr), group_id, max)
+      ),
+      strand = "*"
+    )
+
+    out$n_native_bins <- as.integer(tapply(start(gr), group_id, length))
+    out
+  })
+
+  var2200kb <- unlist(GRangesList(pooled), use.names = FALSE)
+  var2200kb <- sort(var2200kb)
+
+  saveRDS(var2200kb, out_rds)
+
+  pdf(out_hist, width = 7, height = 5)
+  hist(
+    width(var2200kb) / 1e6,
+    breaks = 60,
+    col = "gray70",
+    border = "white",
+    main = "var2200kb bin size sanity check",
+    xlab = "Bin size, Mb"
+  )
+  abline(v = median(width(var2200kb) / 1e6), col = "red", lwd = 2)
+  legend(
+    "topright",
+    legend = paste0("Median = ", round(median(width(var2200kb) / 1e6), 3), " Mb"),
+    bty = "n"
+  )
+  dev.off()
+
+  message("Saved: ", out_rds)
+  message("Saved: ", out_hist)
+  message("Original ranges: ", length(var220))
+  message("Pooled ranges: ", length(var2200kb))
+  message("Median pooled bin size Mb: ", round(median(width(var2200kb) / 1e6), 4))
+
+  var2200kb
+}
+```
+
+```{r}
+var2200kb <- make_var2200kb_from_var220(
+  var220 = var220,
+  bins_per_group = 10,
+  out_rds = "var2200kb.rds",
+  out_hist = "var2200kb_bin_size_hist.pdf"
+)
+```
+
+
+```{r}
+var2200kb
+summary(width(var2200kb) / 1e6)
+table(mcols(var2200kb)$n_native_bins)
+```
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,13 @@
+Tissue: deepseq_488B
+Tilesize: 500 bp
+Binarize: FALSE
+Cells: 7841
+Tiles: 6062095
+Non-zero elements: 647826956
+Density: 0.013629
+Sparsity: 0.9864 (98.64%)
+Mean tiles per cell: 143545.26
+Median tiles per cell: 151144.0
+Mean cells per tile: 185.6682
+Median cells per tile: 132.0
+

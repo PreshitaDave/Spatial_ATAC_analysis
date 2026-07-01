@@ -2,7 +2,7 @@
 #$ -P paxlab
 #$ -N allelo_low_489
 #$ -wd /projectnb/paxlab/presh/projects/spatial_atac
-#$ -pe omp 16
+#$ -pe omp 8
 #$ -l h_rt=48:00:00
 #$ -l mem_per_core=6G
 #$ -j n

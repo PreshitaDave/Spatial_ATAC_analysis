@@ -80,24 +80,8 @@ echo ""
 echo "--- Step 4: CNA + clone calling ---"
 echo "Start: $(date)"
 
-# Check that tumorprop file was produced
-TUMORPROP="${OUTPUT_ROOT}/purity/clone5_rectangle0_w1.0/tumorprop_spots.tsv"
-if [ ! -f "${TUMORPROP}" ]; then
-    echo "WARNING: tumorprop_spots.tsv not found at expected path: ${TUMORPROP}"
-    echo "Trying to find any tumorprop file..."
-    TUMORPROP=$(find "${OUTPUT_ROOT}/purity" -name "tumorprop_spots.tsv" | head -1)
-    if [ -z "${TUMORPROP}" ]; then
-        echo "ERROR: No tumorprop file found. Running CNA without purity prior."
-        # Update config to remove tumorprop_file
-        sed -i "s|^tumorprop_file :.*|tumorprop_file : None|" \
-            tissue/${TISSUE}/config_cna.yaml
-    else
-        echo "Found: ${TUMORPROP}"
-        # Update config with actual path
-        sed -i "s|^tumorprop_file :.*|tumorprop_file : ${TUMORPROP}|" \
-            tissue/${TISSUE}/config_cna.yaml
-    fi
-fi
+# No tumorprop_file for ATAC-only data — CalicoST infers normal spots
+# automatically from BAF profiles. config_cna.yaml already has tumorprop_file: None.
 
 ${PYTHON} 4_run_cna.py tissue/${TISSUE}/config_cna.yaml
 

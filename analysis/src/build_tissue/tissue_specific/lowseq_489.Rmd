@@ -1,0 +1,1982 @@
+---
+title: "Lowseq_489 ArchR Analysis - Peak Calling & Deconvolution"
+author: "Spatial ATAC-seq Pipeline"
+date: "June 1, 2026"
+output: 
+  html_document:
+    code_folding: hide
+    toc: true
+    toc_float: true
+editor_options: 
+  chunk_output_type: console
+---
+
+**Date**: Jun 01 2026  
+**Purpose**: Load ArchR object, perform peak calling, deconvolution, and prepare for Alleloscope analysis
+
+---
+
+# 1. Environment Setup & Library Loading
+
+## 1.1 Project Paths & Configuration
+
+```{r setup, include=FALSE}
+# Set project root and define key paths
+project_root <- "/projectnb/paxlab/presh/projects/spatial_atac"
+tissue_name <- "lowseq_489"
+
+# Data paths
+archr_project_dir <- file.path(project_root, "Data/01_outputs/archR_objects", tissue_name, 
+                               paste0(tissue_name, "_archR_project_final"))
+output_base <- file.path(project_root, "analysis/plots/archr_obj", tissue_name)
+data_output <- file.path(project_root, "Data/04_analysis/archr", tissue_name)
+
+# Create output directories
+dir.create(output_base, recursive = TRUE, showWarnings = FALSE)
+dir.create(data_output, recursive = TRUE, showWarnings = FALSE)
+
+# Set seed for reproducibility
+set.seed(42)
+
+# Print environment info
+cat(sprintf("Project Root: %s\n", project_root))
+cat(sprintf("ArchR Project Dir: %s\n", archr_project_dir))
+cat(sprintf("Output Base: %s\n", output_base))
+```
+
+## 1.2 R Library Loading & Paths
+
+### Library Sources & Installation Paths:
+
+
+```{r load-libraries, message=FALSE, warning=FALSE}
+# Suppress startup messages
+suppressPackageStartupMessages({
+  # Bioconductor packages for genomic analysis
+  library(ArchR)           # ATAC-seq analysis framework (GitHub/Bioconductor)
+  library(GenomicRanges)   # Genomic interval manipulation (Bioconductor)
+  library(IRanges)         # Range-based operations (Bioconductor)
+  library(S4Vectors)       # S4 vector classes (Bioconductor)
+  library(SummarizedExperiment) # Data container (Bioconductor)
+  library(BSgenome.Hsapiens.UCSC.hg38)
+  library(EPICATAC) 
+  
+  # Visualization packages
+  library(ggplot2)         # Grammar of graphics (CRAN)
+  library(gridExtra)       # Arrange plots in grid (CRAN)
+  library(pheatmap)        # Heatmap visualization (CRAN)
+  library(patchwork)
+  library(cowplot)
+  
+  # Data manipulation
+  library(data.table)      # Fast data frame operations (CRAN)
+  library(dplyr)           # Data wrangling (CRAN)
+  
+  # Dimensionality reduction & clustering
+  library(igraph)          # Network analysis (CRAN)
+  library(harmony)         # Batch correction (CRAN)
+})
+
+# Configure ArchR
+addArchRGenome("hg38")
+addArchRThreads(threads = 8)
+
+# Verify libraries loaded
+cat("\n✓ All libraries loaded successfully\n")
+cat("R Version:", R.version$version.string, "\n")
+```
+
+---
+
+# 2. Load ArchR Project
+
+```{r load-archr-project}
+# Load the ArchR project from saved directory
+cat(sprintf("\nLoading ArchR project from: %s\n", archr_project_dir))
+
+if (!dir.exists(archr_project_dir)) {
+  stop(sprintf("ArchR project directory not found: %s", archr_project_dir))
+}
+
+# Load project
+proj <- loadArchRProject(path = archr_project_dir)
+
+# Print QC summary
+metadata <- getCellColData(proj)
+cat("\nQC Metrics Summary:\n")
+cat(sprintf("  - TSS Enrichment: Mean = %.2f, Median = %.2f\n", 
+            mean(metadata$TSSEnrichment, na.rm=TRUE), 
+            median(metadata$TSSEnrichment, na.rm=TRUE)))
+cat(sprintf("  - nFrags: Mean = %.0f, Median = %.0f\n", 
+            mean(metadata$nFrags, na.rm=TRUE), 
+            median(metadata$nFrags, na.rm=TRUE)))
+```
+
+
+Add spatial coordinates to the object 
+
+```{r}
+tissue.locs =  read.csv(file.path(project_root, "Data", "01_inputs", "spatial", "tissue_positions_list.csv"), header = T )
+tissue.locs2 = tissue.locs[tissue.locs$in_tissue == 1, ]
+tissue.locs2$new_barcode = paste0("Lowseq_489#", tissue.locs2$barcode, '-1')
+
+
+proj.meta = proj@cellColData
+
+proj.meta2 = merge(proj.meta, tissue.locs2, by.x = 'row.names', by.y = 'new_barcode', all.x = T )
+rownames(proj.meta2) = proj.meta2$Row.names
+proj.meta2 = proj.meta2[,-1 ]
+
+proj@cellColData = proj.meta2
+
+
+
+cluster_cols <- c(
+  "C1" = "#F8766D",  # red
+  "C2" = "#2C3E90",  # dark blue
+  "C3" = "#4DAF4A",  # green
+  "C4" = "#B85CC3",  # purple
+  "C5" = "#FF8C33"   # orange
+)
+
+ggplot(proj.meta2, aes(x = x_spatial, y = y_spatial, color = Clusters)) +
+  geom_point(size = 0.8, alpha = 0.9) +
+  coord_fixed() +
+  scale_color_manual(values = cluster_cols) +
+  theme_minimal() +
+  labs(x = "x_spatial", y = "y_spatial", color = "Clusters")
+
+
+```
+
+
+
+---
+# 3. Calling normal cells 
+
+```{r}
+features <- list(
+  BScore = c("MS4A1", "CD79A", "CD74", "CD19", "PAX5"),
+  TScore = c("CD3D", "CD8A", "GZMB", "CCR7", "LEF1"),
+  MScore = c("CD68", "LYZ", "CXCL10", "CD163"),
+  FScore = c( "COL1A1","COL1A2","VIM","DCN","PDGFRA")
+)
+
+proj <- addImputeWeights(proj)
+
+proj <- addModuleScore(proj, useMatrix = "GeneScoreMatrix",
+                       name = "BScore", features = list(BScore = features$BScore))
+
+proj <- addModuleScore(proj, useMatrix = "GeneScoreMatrix",
+                       name = "TScore", features = list(TScore = features$TScore))
+
+proj <- addModuleScore(proj, useMatrix = "GeneScoreMatrix",
+                       name = "MScore", features = list(MScore = features$MScore))
+
+proj <- addModuleScore(proj, useMatrix = "GeneScoreMatrix",
+                       name = "FScore", features = list(FScore = features$FScore))
+
+
+p1 <- plotEmbedding(proj,
+    embedding = "UMAP",
+    colorBy = "cellColData",
+    name="BScore.BScore",
+    imputeWeights = getImputeWeights(proj))
+
+p2 <- plotEmbedding(proj,
+    embedding = "UMAP",
+    colorBy = "cellColData",
+    name="TScore.TScore",
+    imputeWeights = getImputeWeights(proj))
+
+p3 <- plotEmbedding(proj,
+    embedding = "UMAP",
+    colorBy = "cellColData",
+    name="MScore.MScore",
+    imputeWeights = getImputeWeights(proj))
+
+
+p4 <- plotEmbedding(proj,
+    embedding = "UMAP",
+    colorBy = "cellColData",
+    name="FScore.FScore",
+    imputeWeights = getImputeWeights(proj))
+
+
+p1+p2+p3+p4
+
+saveArchRProject(ArchRProj = proj, load = F)
+```
+
+Cluster 1 and 2 are the normal cells!
+
+
+<!-- --- -->
+<!-- # 4. Calling peaks with MACS2 -->
+<!-- WE need to load MACS2 before starting R interactive session -->
+<!-- system("module load python3/3.8.6") -->
+<!-- system("export PYTHONPATH=/share/pkg.7/macs2/2.2.7.1/install/lib/python3.8/site-packages:$PYTHONPATH") -->
+<!-- ```{r } -->
+<!-- plotEmbedding(ArchRProj = proj, colorBy = "cellColData", name = "Clusters", embedding = "UMAP") -->
+<!-- proj <- addGroupCoverages(ArchRProj = proj, groupBy = "Clusters") -->
+
+<!-- pathToMacs2 <- '/share/pkg.7/macs2/2.2.7.1/install/bin/macs2' -->
+<!-- proj <- addReproduciblePeakSet( -->
+<!--     ArchRProj = proj,  -->
+<!--     groupBy = "Clusters",  -->
+<!--     pathToMacs2 = pathToMacs2 -->
+<!-- ) -->
+
+<!-- proj <- addPeakMatrix(proj) -->
+<!-- saveArchRProject(ArchRProj = proj, load = F) -->
+
+<!-- markerPeaks <- getMarkerFeatures( -->
+<!--     ArchRProj = proj,  -->
+<!--     useMatrix = "PeakMatrix",  -->
+<!--     groupBy = "Clusters", -->
+<!--   bias = c("TSSEnrichment", "log10(nFrags)"), -->
+<!--   testMethod = "wilcoxon" -->
+<!-- ) -->
+<!-- ``` -->
+<!-- --- -->
+
+---
+# 4. Running Alleloscope with normal cells identified 
+
+
+
+```{r}
+
+suppressPackageStartupMessages({
+  library(Alleloscope)
+  library(Matrix)
+  library(parallel)
+})
+
+NCORES <- as.integer(Sys.getenv("NSLOTS", "8"))
+
+allelo.path <- "/projectnb/paxlab/presh/software/Alleloscope"
+data.path   <- "/projectnb/paxlab/presh/projects/spatial_atac/Data/04_analysis/cnv/alleloscope/lowseq_tissue_from_existing/489_fresh_20260519"
+dir_path    <- file.path(data.path, "output_normal")
+dir.create(dir_path, showWarnings = FALSE, recursive = TRUE)
+
+message(sprintf("[%s] === Alleloscope lowseq analysis START (ncores=%d) ===",
+                Sys.time(), NCORES))
+
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CHECKPOINT RESUME: load latest available saved state and skip completed steps
+# ─────────────────────────────────────────────────────────────────────────────
+CKPT_SEG     <- file.path(dir_path, "rds", "Obj_after_seg.rds")
+CKPT_EM_SEG  <- file.path(dir_path, "rds", "Obj_after_EM_seg.rds")
+CKPT_SEL_NRM <- file.path(dir_path, "rds", "Obj_after_select_normal.rds")
+CKPT_GTV     <- file.path(dir_path, "rds", "Obj_after_gtv.rds")
+
+# Always load raw_counts + size (small, needed by downstream steps)
+# Determine from which step to resume
+if (file.exists(CKPT_GTV)) {
+  message(sprintf("[%s] [resume] Loading checkpoint: Obj_after_gtv.rds (resuming from Step 9)", Sys.time()))
+  size <- read.table(file.path(allelo.path, "data-raw/sizes.cellranger-GRCh38-1.0.0.txt"), stringsAsFactors = FALSE)[1:22, ]
+  raw_counts <- read.table(file.path(data.path, "chr1000k_fragments.tsv"), sep = "\t", header = TRUE, row.names = 1, stringsAsFactors = FALSE)
+  colnames(raw_counts) <- gsub("[.]", "-", colnames(raw_counts))
+  Obj_filtered <- readRDS(CKPT_GTV)
+  RESUME_FROM <- 9L
+} else if (file.exists(CKPT_SEL_NRM)) {
+  message(sprintf("[%s] [resume] Loading checkpoint: Obj_after_select_normal.rds (resuming from Step 8)", Sys.time()))
+  size <- read.table(file.path(allelo.path, "data-raw/sizes.cellranger-GRCh38-1.0.0.txt"), stringsAsFactors = FALSE)[1:22, ]
+  raw_counts <- read.table(file.path(data.path, "chr1000k_fragments.tsv"), sep = "\t", header = TRUE, row.names = 1, stringsAsFactors = FALSE)
+  colnames(raw_counts) <- gsub("[.]", "-", colnames(raw_counts))
+  Obj_filtered <- readRDS(CKPT_SEL_NRM)
+  RESUME_FROM <- 8L
+} else if (file.exists(CKPT_EM_SEG)) {
+  message(sprintf("[%s] [resume] Loading checkpoint: Obj_after_EM_seg.rds (resuming from Step 7)", Sys.time()))
+  size <- read.table(file.path(allelo.path, "data-raw/sizes.cellranger-GRCh38-1.0.0.txt"), stringsAsFactors = FALSE)[1:22, ]
+  raw_counts <- read.table(file.path(data.path, "chr1000k_fragments.tsv"), sep = "\t", header = TRUE, row.names = 1, stringsAsFactors = FALSE)
+  colnames(raw_counts) <- gsub("[.]", "-", colnames(raw_counts))
+  Obj_filtered <- readRDS(CKPT_EM_SEG)
+  RESUME_FROM <- 7L
+} else if (file.exists(CKPT_SEG)) {
+  message(sprintf("[%s] [resume] Loading checkpoint: Obj_after_seg.rds (resuming from Step 6)", Sys.time()))
+  size <- read.table(file.path(allelo.path, "data-raw/sizes.cellranger-GRCh38-1.0.0.txt"), stringsAsFactors = FALSE)[1:22, ]
+  raw_counts <- read.table(file.path(data.path, "chr1000k_fragments.tsv"), sep = "\t", header = TRUE, row.names = 1, stringsAsFactors = FALSE)
+  colnames(raw_counts) <- gsub("[.]", "-", colnames(raw_counts))
+  Obj_filtered <- readRDS(CKPT_SEG)
+  RESUME_FROM <- 6L
+} else {
+  RESUME_FROM <- 1L
+}
+
+if (RESUME_FROM > 1L) {
+  message(sprintf("[%s] Skipping Steps 1-%d (already completed)", Sys.time(), RESUME_FROM - 1L))
+}
+
+
+if (RESUME_FROM <= 1L) {
+message(sprintf("[%s] Step 1: Loading inputs", Sys.time()))
+
+size <- read.table(
+  file.path(allelo.path, "data-raw/sizes.cellranger-GRCh38-1.0.0.txt"),
+  stringsAsFactors = FALSE
+)
+size <- size[1:22, ]
+
+barcodes  <- read.table(file.path(data.path, "barcodes.tsv"),
+                        sep = "\t", stringsAsFactors = FALSE, header = FALSE)
+alt_all   <- readMM(file.path(data.path, "alt_all.mtx"))
+ref_all   <- readMM(file.path(data.path, "ref_all.mtx"))
+var_all   <- read.table(file.path(data.path, "var_all.vcf"),
+                        header = FALSE, sep = "\t", stringsAsFactors = FALSE)
+
+raw_counts <- read.table(
+  file.path(data.path, "chr1000k_fragments.tsv"),
+  sep = "\t", header = TRUE, row.names = 1, stringsAsFactors = FALSE
+)
+
+# fix column name encoding (dots -> dashes sometimes happen with read.table)
+colnames(raw_counts) <- gsub("[.]", "-", colnames(raw_counts))
+
+message(sprintf("  barcodes: %d | SNPs: %d | bins: %d x %d",
+                nrow(barcodes), nrow(var_all), nrow(raw_counts), ncol(raw_counts)))
+
+
+} # end RESUME_FROM <= 1
+```
+
+
+## a. Running with normal cells identified with atac data 
+```{r}
+cell_type = proj@cellColData[,'Clusters', drop = F ]
+cell_type$barcode = gsub('Lowseq_489#', '', rownames(cell_type))
+cell_type$barcode = gsub('-1', '', cell_type$barcode)
+cell_type$class <- ifelse(cell_type$Clusters %in% c("C1", "C2"), "normal", "tumor")
+cell_type <- as.data.frame(cell_type)
+rownames(cell_type) = cell_type$barcode
+cell_type = cell_type[,-1]
+colnames(cell_type) = c('COL1', 'COL2')
+
+RESUME_FROM = 4
+input_path = file.path(data.path, "output/rds")
+
+Obj_filtered = readRDS(file.path(input_path,  "Obj_after_EM_chr.rds"))
+
+message(sprintf("[%s] Step 4: Identify/ Assign normal cells", Sys.time()))
+
+Obj_filtered$select_normal$barcode_normal <- as.character(
+  cell_type[cell_type$COL2 != "tumor", "COL1"]
+)
+
+Obj_filtered[["dir_path"]] = '/projectnb/paxlab/presh/projects/spatial_atac/Data/04_analysis/cnv/alleloscope/lowseq_tissue_from_existing/489_fresh_20260519/output_normal'
+
+# Obj_filtered=Select_normal(Obj_filtered = Obj_filtered, raw_counts=raw_counts, plot_theta = TRUE, cell_type = cell_type, mincell = 0)
+
+# Obj_filtered = Select_normal(
+#   Obj_filtered = Obj_filtered,
+#   raw_counts   = raw_counts,
+#   pre_sel      = FALSE,
+#   plot_theta   = TRUE,
+#   cell_type = cell_type
+# )
+
+source("/projectnb/paxlab/presh/projects/spatial_atac/analysis/src/alleloscope_load_patched.R")
+
+
+tryCatch({
+  Obj_filtered=Genotype_value(Obj_filtered = Obj_filtered, type='tumor', raw_counts=raw_counts, cov_adj=1)
+}, error = function(e) {
+  cat("FULL ERROR:\n")
+  print(e)
+  cat("\nTRACEBACK:\n")
+  traceback()
+})
+
+
+Obj_filtered=Genotype(Obj_filtered = Obj_filtered, cell_type=cell_type, xmax=3)
+
+saveRDS(Obj_filtered,
+        file.path(Obj_filtered[["dir_path"]], "rds", "Obj_final.rds"))
+```
+
+```{r}
+message(sprintf("[%s] Step 10: plot_scATAC_cnv (Step-6 heatmap)", Sys.time()))
+
+# Ensure barcode_normal_final is set regardless of resume point
+if (!exists("barcode_normal_final")) {
+  barcode_normal_final <- Obj_filtered$select_normal$barcode_normal
+}
+
+# Re-read full size table for plot_scATAC_cnv (needs 2-column data frame)
+size_df <- read.table(
+  file.path(allelo.path, "data-raw/sizes.cellranger-GRCh38-1.0.0.txt"),
+  stringsAsFactors = FALSE
+)
+size_df <- size_df[1:22, ]
+
+Obj_filtered <- readRDS(file.path('/projectnb/paxlab/presh/projects/spatial_atac/Data/04_analysis/cnv/alleloscope/lowseq_tissue_from_existing/489_fresh_20260519/output_normal', "rds", "Obj_final.rds"))
+
+raw_counts <- read.table(file.path(data.path, "chr1000k_fragments.tsv"),
+  sep="\t", header=TRUE, row.names=1, stringsAsFactors=FALSE)
+colnames(raw_counts) <- gsub("[.]", "-", colnames(raw_counts))
+barcode_normal_final <- Obj_filtered$select_normal$barcode_normal
+
+# Build cell_type data frame: barcode | label
+all_barcodes <- colnames(raw_counts)
+cell_type_df <- data.frame(
+  barcode   = all_barcodes,
+  cell_type = ifelse(all_barcodes %in% barcode_normal_final, "normal", "tumor"),
+  stringsAsFactors = FALSE
+)
+
+heatmap_path <- file.path(Obj_filtered[["dir_path"]], "plots", "step6_CNV_coverage_heatmap.png")
+
+# Remove zero-coverage cells before normalization (0/0 → NaN → rowMedians all NA)
+keep_cells  <- colSums(raw_counts[, cell_type_df$barcode]) > 0
+message(sprintf("  Cells passing coverage filter: %d / %d",
+                sum(keep_cells), length(keep_cells)))
+cell_type_df_filt <- cell_type_df[keep_cells, , drop = FALSE]
+
+
+cov_obj <- plot_scATAC_cnv(
+  raw_mat        = as.matrix(raw_counts[, cell_type_df_filt$barcode]),
+  cell_type      = cell_type_df_filt,
+  normal_lab     = "normal",
+  size           = size_df,
+  window_w       = 10000000,
+  window_step    = 2000000,
+  plot_path      = heatmap_path,
+  nclust         = 3,
+  var.filter     = T
+)
+
+saveRDS(cov_obj, file.path(Obj_filtered[["dir_path"]], "rds", "cov_obj.rds"))
+
+# ───────────────────────────────────────────────────────────────────────────
+# Filter: Remove windows with ≥50% blacklist overlap
+# ───────────────────────────────────────────────────────────────────────────
+message("Step: Filter blacklist regions from raw_counts (based on rownames)")
+
+# Load blacklist file
+BLACKLIST_FILE <- "/projectnb/paxlab/presh/projects/spatial_atac/Data/04_analysis/cnv/CNV_results/epianeufinder/hg38-blacklist.v2.bed"
+
+if (!file.exists(BLACKLIST_FILE)) {
+  stop(paste("Blacklist file not found:", BLACKLIST_FILE))
+}
+
+blacklist_df <- data.table::fread(BLACKLIST_FILE, header=FALSE, 
+                                  col.names=c("chrom", "start", "end", "name"))
+message(paste("Loaded", nrow(blacklist_df), "blacklist regions"))
+
+# Convert blacklist to GRanges
+blacklist_gr <- GenomicRanges::GRanges(
+  seqnames=blacklist_df$chrom,
+  ranges=IRanges::IRanges(start=blacklist_df$start, end=blacklist_df$end),
+  name=blacklist_df$name
+)
+
+# Parse window coordinates from ROWNAMES (format: chr1-start-end)
+message(paste("Parsing", nrow(raw_counts), "windows from raw_counts rownames"))
+
+window_coords <- data.frame(
+  window_name = rownames(raw_counts),
+  stringsAsFactors = FALSE
+)
+
+parts_list <- strsplit(window_coords$window_name, "-")
+window_coords$chr <- sapply(parts_list, function(x) x[1])
+window_coords$start <- as.numeric(sapply(parts_list, function(x) x[2]))
+window_coords$end <- as.numeric(sapply(parts_list, function(x) x[3]))
+
+# Convert windows to GRanges
+windows_gr <- GenomicRanges::GRanges(
+  seqnames=window_coords$chr,
+  ranges=IRanges::IRanges(start=window_coords$start, end=window_coords$end),
+  window_name=window_coords$window_name
+)
+
+# Calculate overlap percentage
+message("Computing overlap percentages with blacklist")
+
+overlap_pct <- numeric(length(windows_gr))
+for (i in seq_along(windows_gr)) {
+  hits <- GenomicRanges::findOverlaps(windows_gr[i], blacklist_gr, type = "any")
+  if (length(hits) == 0) next
+  
+  subject_idx <- S4Vectors::subjectHits(hits)
+  
+  # Repeat window to match number of overlapping blacklist regions
+  overlapping <- GenomicRanges::pintersect(
+    rep(windows_gr[i], length(subject_idx)), 
+    blacklist_gr[subject_idx]
+  )
+  
+  overlap_pct[i] <- sum(GenomicRanges::width(overlapping)) / GenomicRanges::width(windows_gr[i]) * 100
+}
+
+# Keep rows with <50% overlap
+keep_50pct <- overlap_pct < 50
+
+message(paste("Min overlap:", round(min(overlap_pct, na.rm = TRUE), 2), "%"))
+message(paste("Max overlap:", round(max(overlap_pct, na.rm = TRUE), 2), "%"))
+message(paste("Mean overlap:", round(mean(overlap_pct, na.rm = TRUE), 2), "%"))
+message(paste("Windows retained (<50% overlap):", sum(keep_50pct), "/", length(keep_50pct)))
+message(paste("Windows removed (>=50% overlap):", sum(!keep_50pct)))
+
+# Apply filter to raw_counts ROWS
+raw_counts_filt <- raw_counts[keep_50pct, , drop = FALSE]
+
+message(paste("Filtered matrix:", nrow(raw_counts_filt), "windows x", ncol(raw_counts_filt), "cells"))
+message("Blacklist filtering complete")
+
+
+
+heatmap_path <- file.path(Obj_filtered[["dir_path"]], "plots", "step6_CNV_coverage_heatmap_filtered.png")
+
+# Remove zero-coverage cells before normalization (0/0 → NaN → rowMedians all NA)
+keep_cells  <- colSums(raw_counts_filt[, cell_type_df$barcode]) > 0
+message(sprintf("  Cells passing coverage filter: %d / %d",
+                sum(keep_cells), length(keep_cells)))
+cell_type_df_filt <- cell_type_df[keep_cells, , drop = FALSE]
+
+
+cov_obj <- plot_scATAC_cnv(
+  raw_mat        = as.matrix(raw_counts_filt[, cell_type_df_filt$barcode]),
+  cell_type      = cell_type_df_filt,
+  normal_lab     = "normal",
+  size           = size_df,
+  window_w       = 10000000,
+  window_step    = 2000000,
+  plot_path      = heatmap_path,
+  nclust         = 3,
+  var.filter     = T
+)
+
+```
+
+
+## b. Normal cell iteration 
+Now reassign the normal cells again based on coverage filtering heatmap and redo the genotype scatter 
+
+```{r}
+cell_type = proj@cellColData[,'Clusters', drop = F ]
+cell_type$barcode = gsub('Lowseq_489#', '', rownames(cell_type))
+cell_type$barcode = gsub('-1', '', cell_type$barcode)
+cell_type$class <- ifelse(cell_type$Clusters %in% c("C1", "C2"), "normal", "tumor")
+cell_type <- as.data.frame(cell_type)
+rownames(cell_type) = cell_type$barcode
+cell_type = cell_type[,-1]
+colnames(cell_type) = c('COL1', 'COL2')
+
+cluster.info <- cov_obj$clust_order
+cluster.info <- data.frame(cluster = cov_obj$clust_order, row.names = names(cov_obj$clust_order))
+
+valid_cells <- intersect(rownames(cell_type), rownames(cluster.info))
+
+# 2. Subset and align both objects simultaneously using the valid cells list
+cell_type    <- cell_type[valid_cells, , drop = FALSE]
+cluster.info <- cluster.info[valid_cells, , drop = FALSE]
+
+# 3. Verify the alignment
+all(rownames(cluster.info) == rownames(cell_type))
+
+table(cluster.info$cluster)
+
+cluster.info$COL1 <- rownames(cluster.info)
+cluster.info <- cluster.info[, c("COL1", setdiff(names(cluster.info), "COL1")), drop = FALSE]
+cluster.info$COL2 = ifelse(cluster.info$cluster == 1, 'tumor', 'normal')
+
+cell_type2 = cluster.info[, -2]
+
+### Checking how different the cell_type2 values are from cell_type i.e., 
+# 1. Bring row names into an explicit 'barcode' column for both
+df1 <- data.frame(barcode = rownames(cell_type),  type1 = cell_type[, 2])
+df2 <- data.frame(barcode = rownames(cell_type2), type2 = cell_type2[, 2])
+
+# 2. Merge them together (keeps only cells present in both datasets)
+combined <- merge(df1, df2, by = "barcode")
+
+# Option A: Get an overview matrix (Rows = Dataset 1, Columns = Dataset 2)
+table(combined$type1, combined$type2)
+
+```
+
+Cluster 2 and 3 are normal cells here, make cluster.info and make a new cell_type dataframe "cell_type2"
+
+```{r}
+input_path = file.path(data.path, "output/rds")
+
+Obj_filtered = readRDS(file.path(input_path,  "Obj_after_EM_chr.rds"))
+
+message(sprintf("[%s] Step 4: Identify/ Assign normal cells", Sys.time()))
+
+Obj_filtered$select_normal$barcode_normal <- as.character(
+  cell_type2[cell_type2$COL2 != "tumor", "COL1"]
+)
+
+Obj_filtered[["dir_path"]] = '/projectnb/paxlab/presh/projects/spatial_atac/Data/04_analysis/cnv/alleloscope/lowseq_tissue_from_existing/489_fresh_20260519/output_normal_iter'
+
+# Obj_filtered=Select_normal(Obj_filtered = Obj_filtered, raw_counts=raw_counts, plot_theta = TRUE, cell_type = cell_type, mincell = 0)
+# Obj_filtered = Select_normal(
+#   Obj_filtered = Obj_filtered,
+#   raw_counts   = raw_counts,
+#   pre_sel      = FALSE,
+#   plot_theta   = TRUE,
+#   cell_type = cell_type
+# )
+
+source("/projectnb/paxlab/presh/projects/spatial_atac/analysis/src/alleloscope_load_patched.R")
+
+
+tryCatch({
+  Obj_filtered=Genotype_value(Obj_filtered = Obj_filtered, type='tumor', raw_counts=raw_counts, cov_adj=1)
+}, error = function(e) {
+  cat("FULL ERROR:\n")
+  print(e)
+  cat("\nTRACEBACK:\n")
+  traceback()
+})
+
+
+Obj_filtered=Genotype(Obj_filtered = Obj_filtered, cell_type=cell_type, xmax=3)
+
+saveRDS(Obj_filtered,
+        file.path(Obj_filtered[["dir_path"]], "rds", "Obj_final.rds"))
+```
+
+
+```{r}
+message(sprintf("[%s] Step 10: plot_scATAC_cnv (Step-6 heatmap)", Sys.time()))
+
+# Ensure barcode_normal_final is set regardless of resume point
+if (!exists("barcode_normal_final")) {
+  barcode_normal_final <- Obj_filtered$select_normal$barcode_normal
+}
+
+# Re-read full size table for plot_scATAC_cnv (needs 2-column data frame)
+size_df <- read.table(
+  file.path(allelo.path, "data-raw/sizes.cellranger-GRCh38-1.0.0.txt"),
+  stringsAsFactors = FALSE
+)
+size_df <- size_df[1:22, ]
+
+Obj_filtered <- readRDS(file.path('/projectnb/paxlab/presh/projects/spatial_atac/Data/04_analysis/cnv/alleloscope/lowseq_tissue_from_existing/489_fresh_20260519/output_normal_iter', "rds", "Obj_final.rds"))
+
+raw_counts <- read.table(file.path(data.path, "chr1000k_fragments.tsv"),
+  sep="\t", header=TRUE, row.names=1, stringsAsFactors=FALSE)
+colnames(raw_counts) <- gsub("[.]", "-", colnames(raw_counts))
+barcode_normal_final <- Obj_filtered$select_normal$barcode_normal
+
+
+# Build cell_type data frame: barcode | label
+all_barcodes <- colnames(raw_counts)
+cell_type_df <- data.frame(
+  barcode   = all_barcodes,
+  cell_type = ifelse(all_barcodes %in% barcode_normal_final, "normal", "tumor"),
+  stringsAsFactors = FALSE
+)
+rownames(cell_type_df) = cell_type_df$barcode
+
+heatmap_path <- file.path(Obj_filtered[["dir_path"]], "plots", "step6_CNV_coverage_heatmap.png")
+
+# Remove zero-coverage cells before normalization (0/0 → NaN → rowMedians all NA)
+keep_cells  <- colSums(raw_counts[, cell_type_df$barcode]) > 0
+message(sprintf("  Cells passing coverage filter: %d / %d",
+                sum(keep_cells), length(keep_cells)))
+cell_type_df_filt <- cell_type_df[keep_cells, , drop = FALSE]
+
+cov_obj <- plot_scATAC_cnv(
+  raw_mat        = as.matrix(raw_counts[, cell_type_df_filt$barcode]),
+  cell_type      = cell_type_df_filt,
+  normal_lab     = "normal",
+  size           = size_df,
+  window_w       = 10000000,
+  window_step    = 2000000,
+  plot_path      = heatmap_path,
+  nclust         = 3,
+  var.filter     = T
+)
+
+saveRDS(cov_obj, file.path(Obj_filtered[["dir_path"]], "rds", "cov_obj.rds"))
+
+# ───────────────────────────────────────────────────────────────────────────
+# Filter: Remove windows with ≥50% blacklist overlap
+# ───────────────────────────────────────────────────────────────────────────
+message("Step: Filter blacklist regions from raw_counts (based on rownames)")
+
+# Load blacklist file
+BLACKLIST_FILE <- "/projectnb/paxlab/presh/projects/spatial_atac/Data/04_analysis/cnv/CNV_results/epianeufinder/hg38-blacklist.v2.bed"
+
+if (!file.exists(BLACKLIST_FILE)) {
+  stop(paste("Blacklist file not found:", BLACKLIST_FILE))
+}
+
+blacklist_df <- data.table::fread(BLACKLIST_FILE, header=FALSE, 
+                                  col.names=c("chrom", "start", "end", "name"))
+message(paste("Loaded", nrow(blacklist_df), "blacklist regions"))
+
+# Convert blacklist to GRanges
+blacklist_gr <- GenomicRanges::GRanges(
+  seqnames=blacklist_df$chrom,
+  ranges=IRanges::IRanges(start=blacklist_df$start, end=blacklist_df$end),
+  name=blacklist_df$name
+)
+
+# Parse window coordinates from ROWNAMES (format: chr1-start-end)
+message(paste("Parsing", nrow(raw_counts), "windows from raw_counts rownames"))
+
+window_coords <- data.frame(
+  window_name = rownames(raw_counts),
+  stringsAsFactors = FALSE
+)
+
+parts_list <- strsplit(window_coords$window_name, "-")
+window_coords$chr <- sapply(parts_list, function(x) x[1])
+window_coords$start <- as.numeric(sapply(parts_list, function(x) x[2]))
+window_coords$end <- as.numeric(sapply(parts_list, function(x) x[3]))
+
+# Convert windows to GRanges
+windows_gr <- GenomicRanges::GRanges(
+  seqnames=window_coords$chr,
+  ranges=IRanges::IRanges(start=window_coords$start, end=window_coords$end),
+  window_name=window_coords$window_name
+)
+
+# Calculate overlap percentage
+message("Computing overlap percentages with blacklist")
+
+overlap_pct <- numeric(length(windows_gr))
+for (i in seq_along(windows_gr)) {
+  hits <- GenomicRanges::findOverlaps(windows_gr[i], blacklist_gr, type = "any")
+  if (length(hits) == 0) next
+  
+  subject_idx <- S4Vectors::subjectHits(hits)
+  
+  # Repeat window to match number of overlapping blacklist regions
+  overlapping <- GenomicRanges::pintersect(
+    rep(windows_gr[i], length(subject_idx)), 
+    blacklist_gr[subject_idx]
+  )
+  
+  overlap_pct[i] <- sum(GenomicRanges::width(overlapping)) / GenomicRanges::width(windows_gr[i]) * 100
+}
+
+# Keep rows with <50% overlap
+keep_50pct <- overlap_pct < 50
+
+message(paste("Min overlap:", round(min(overlap_pct, na.rm = TRUE), 2), "%"))
+message(paste("Max overlap:", round(max(overlap_pct, na.rm = TRUE), 2), "%"))
+message(paste("Mean overlap:", round(mean(overlap_pct, na.rm = TRUE), 2), "%"))
+message(paste("Windows retained (<50% overlap):", sum(keep_50pct), "/", length(keep_50pct)))
+message(paste("Windows removed (>=50% overlap):", sum(!keep_50pct)))
+
+# Apply filter to raw_counts ROWS
+raw_counts_filt <- raw_counts[keep_50pct, , drop = FALSE]
+
+message(paste("Filtered matrix:", nrow(raw_counts_filt), "windows x", ncol(raw_counts_filt), "cells"))
+message("Blacklist filtering complete")
+
+
+
+heatmap_path <- file.path(Obj_filtered[["dir_path"]], "plots", "step6_CNV_coverage_heatmap_filtered.png")
+
+# Remove zero-coverage cells before normalization (0/0 → NaN → rowMedians all NA)
+keep_cells  <- colSums(raw_counts_filt[, cell_type_df$barcode]) > 0
+message(sprintf("  Cells passing coverage filter: %d / %d",
+                sum(keep_cells), length(keep_cells)))
+cell_type_df_filt <- cell_type_df[keep_cells, , drop = FALSE]
+
+
+cov_obj <- plot_scATAC_cnv(
+  raw_mat        = as.matrix(raw_counts_filt[, cell_type_df_filt$barcode]),
+  cell_type      = cell_type_df_filt,
+  normal_lab     = "normal",
+  size           = size_df,
+  window_w       = 10000000,
+  window_step    = 2000000,
+  plot_path      = heatmap_path,
+  nclust         = 3,
+  var.filter     = T
+)
+
+saveRDS(cov_obj, file.path(Obj_filtered[["dir_path"]], "rds", "cov_obj_filt.rds"))
+
+```
+
+
+I think we can save this object as the final object to work and make clones with this 
+
+Let's subset the tumor cells out and make different groups and then look at it spatially to see if its spatially resolved, and also color the immune cells dark gray! and light gray for spots which has no cells 
+
+```{r}
+tumor.cells <- names(cov_obj$clust_order)[cov_obj$clust_order == 1] 
+
+
+
+# Remove zero-coverage cells before normalization (0/0 → NaN → rowMedians all NA)
+keep_cells  <- colSums(raw_counts_filt[, tumor.cells]) > 0
+message(sprintf("  Cells passing coverage filter: %d / %d",
+                sum(keep_cells), length(keep_cells)))
+cell_type_df_filt <- cell_type_df[names(keep_cells), , drop = FALSE]
+
+
+# cov_obj2 <- plot_scATAC_cnv(
+#   raw_mat        = as.matrix(raw_counts_filt[, cell_type_df_filt$barcode]),
+#   cell_type      = cell_type_df_filt,
+#   normal_lab     = "normal",
+#   size           = size_df,
+#   window_w       = 10000000,
+#   window_step    = 2000000,
+#   plot_path      = heatmap_path,
+#   nclust         = 6,
+#   var.filter     = T
+# )
+
+
+```
+
+
+
+
+```{r}
+set.seed(1)
+
+heatmap_path <- file.path(Obj_filtered[["dir_path"]], "plots", "CNV_coverage_heatmap_filtered_tumor.png")
+
+plot_scATAC_cnv_with_colored_tree <- function(raw_mat=NULL, 
+                             cell_type=NULL, 
+                             normal_lab="normal", 
+                             size=NULL, 
+                             window_w=10000000, 
+                             window_step=2000000, 
+                             plot_path=NULL, 
+                             nclust=3, 
+                             var.filter=FALSE, 
+                             annotation_df=NULL,
+                             cluster_colors=NULL) {
+  
+  if(is.null(plot_path)){
+    plot_path=paste0("./plots/CNV_cov_w",window_w,"_s",window_step,"_sub.png")
+    if(!dir.exists("./plots/")) dir.create("./plots/")
+  }
+  
+  ## 1. Normalize by cell size
+  if(var.filter==TRUE){
+    vars=apply(raw_mat, 1, var)
+    cellsize=colSums(raw_mat[which(vars < quantile(vars, 0.99)),])
+  } else {
+    cellsize=colSums(raw_mat)
+  }
+  cellsize=matrix(rep(cellsize, nrow(raw_mat)), byrow = TRUE, ncol=ncol(raw_mat))
+  raw_mat=raw_mat/cellsize
+  
+  if(!grepl("chr", size[1,1])) size[,1] = paste0("chr", size[,1])
+  size = size[(size[,1] %in% paste0('chr', 1:22)),]
+  
+  ## 2. Genomic Binning
+  cnv_bin0 = GenomicRanges::GRanges(size[,1], IRanges::IRanges(1, as.numeric(size[,2])))
+  sw = GenomicRanges::slidingWindows(x = cnv_bin0, width = window_w, step = window_step)
+  cnv_bin = sw@unlistData
+  
+  if(!is.character(rownames(raw_mat))) rownames(raw_mat) <- as.character(rownames(raw_mat))
+  
+  subject = GenomicRanges::GRanges(
+    sapply(strsplit(rownames(raw_mat), ":|_|-"), '[', 1),
+    IRanges::IRanges(as.numeric(sapply(strsplit(rownames(raw_mat), ":|_|-"), '[', 2)) + 1,
+                     as.numeric(sapply(strsplit(rownames(raw_mat), ":|_|-"), '[', 3)))
+  )
+  
+  ov = as.matrix(GenomicRanges::findOverlaps(cnv_bin, subject))
+  
+  ## 3. Smoothing
+  smooth_mat = matrix(ncol=ncol(raw_mat), nrow=length(cnv_bin))
+  for(ii in 1:length(cnv_bin)){
+    ri = colSums(raw_mat[ov[which(ov[,1]==ii), 2], , drop=FALSE])
+    smooth_mat[ii,] = ri
+  }
+  colnames(smooth_mat) = colnames(raw_mat)
+  rownames(smooth_mat) = paste0(as.character(GenomicRanges::seqnames(cnv_bin)), '-', 
+                                GenomicRanges::start(cnv_bin), '-', 
+                                GenomicRanges::end(cnv_bin))
+  
+  ## 4. Normalization vs Normal Cells
+  rownames(cell_type) = cell_type[,1]
+  mat_celltype = cell_type[match(colnames(smooth_mat), rownames(cell_type)), 2]
+  nontumor_mat = smooth_mat[, which((mat_celltype %in% normal_lab))]
+  
+  bin_ind = which(matrixStats::rowMedians(nontumor_mat) != 0)
+  norm_matrix = matrix(rep(matrixStats::rowMedians(nontumor_mat), ncol(smooth_mat)), 
+                       ncol=ncol(smooth_mat), byrow=FALSE)
+  
+  smooth_mat_norm = smooth_mat[bin_ind, , drop=FALSE] / (norm_matrix[bin_ind, , drop=FALSE])
+  smooth_mat_norm = apply(smooth_mat_norm, c(1,2), function(x) min(x,5))
+  
+  plot_matrix = t(smooth_mat_norm) # Cells as rows
+  
+  ## 5. Prepare Chromosome Gaps
+  smooth_mat_rn <- as.character(rownames(smooth_mat))
+  chrgap = table(sapply(strsplit(smooth_mat_rn[bin_ind], '-'), '[', 1))[paste0('chr', 1:nrow(size))]
+  chrgap[is.na(chrgap)] = 0
+  
+  col_lab = rep(" ", ncol(plot_matrix))
+  idx_valid = which(chrgap != 0)
+  col_lab[c(0, cumsum(chrgap)[idx_valid])[1:length(idx_valid)] + chrgap[idx_valid]/2] = names(chrgap)[idx_valid]
+  
+  ## 6. Annotations
+  celltype_df = as.data.frame(cell_type)
+  rownames(celltype_df) = celltype_df[,1]
+  
+  if (!is.null(annotation_df)) {
+    annotation_df <- as.data.frame(annotation_df)
+    shared_bc <- intersect(rownames(celltype_df), rownames(annotation_df))
+    celltype_df <- cbind(celltype_df[shared_bc, , drop=FALSE], annotation_df[shared_bc, , drop=FALSE])
+  }
+  
+  ## 7. Scaling for Coloring
+  plot_matrix_scaled = plot_matrix * 2
+  plot_matrix_scaled = apply(plot_matrix_scaled, c(1,2), function(x) if(x <= 2.5 & x >= 1.5){2} else {x})
+  
+  ## --- CLUSTERING AND COLOR LOGIC ---
+  # Manual Clustering to sync Annotation Bar
+  dist_mat <- as.dist(1 - cor(t(plot_matrix_scaled)))
+  fit <- hclust(dist_mat, method = "ward.D2")
+  clusters <- cutree(fit, k = nclust)
+  celltype_df$CNV_Cluster <- as.factor(clusters[rownames(celltype_df)])
+  
+  # # Set Default Colors if none provided
+  # if(is.null(cluster_colors)) {
+  #   cluster_colors <- c("1"="#CC6677", "2"="#999933", "3"="#117733", 
+  #                       "4"="#332288", "5"="#FF8C33", "6"="#6699CC")
+  # }
+  # 
+  # Ensure the names of the color vector match the cluster IDs (1, 2, 3...)
+  # If the user passed an unnamed vector, we name it 1:length
+  if(is.null(names(cluster_colors))) {
+    names(cluster_colors) <- as.character(1:length(cluster_colors))
+  }
+  
+  ann_colors <- list(CNV_Cluster = cluster_colors)
+  ## ----------------------------------
+  
+  ## 8. Heatmap Breaks
+  breaklength = 50
+  setcolor = colorRampPalette(c("blue", "white", "red"))(breaklength)
+  setbreaks = c(seq(min(plot_matrix_scaled), 1.7, length.out=ceiling(breaklength/2) + 1), 
+                c(2.3, seq((max(plot_matrix_scaled)-2.3)/breaklength+2.3, max(plot_matrix_scaled), 
+                           length.out=floor(breaklength/2)))[1:(breaklength/2)])
+  
+  png(plot_path, width=1200, height=800, res=150)
+  tmp = pheatmap::pheatmap(plot_matrix_scaled,
+                           cluster_cols = FALSE, 
+                           cluster_rows = TRUE,
+                           show_rownames = FALSE,
+                           show_colnames = TRUE,
+                           color = setcolor,
+                           breaks = setbreaks,
+                           labels_col = col_lab,
+                           clustering_distance_rows = "correlation",
+                           clustering_method = "ward.D2",
+                           gaps_col = cumsum(chrgap),
+                           cutree_rows = nclust,
+                           annotation_row = celltype_df[, -1, drop=FALSE],
+                           annotation_colors = ann_colors)
+  dev.off()
+  
+  message("Plot successfully generated: ", plot_path)
+  
+  return(list(
+    clust_order = cutree(tmp$tree_row, k=nclust)[tmp$tree_row$order], 
+    plot_matrix = plot_matrix_scaled, 
+    metadata = celltype_df
+  ))
+}
+
+
+
+cluster_cols <- c("1"="#CC6677","2"="#999933","3"="#117733","4"="#332288","5"="#FF8C33","6"="#6699CC")
+
+dev.off()
+cov_obj2 <- plot_scATAC_cnv_with_colored_tree(
+  raw_mat = as.matrix(raw_counts_filt[, cell_type_df_filt$barcode]),
+  cell_type = cell_type_df_filt,
+  normal_lab = "normal",
+  size = size_df,
+  window_w = 10000000,
+  window_step = 2000000,
+  plot_path = heatmap_path,
+  nclust = 6,
+  var.filter = TRUE,
+  cluster_colors = cluster_cols
+)
+
+saveRDS(cov_obj2, file.path(Obj_filtered[["dir_path"]], "rds", "cov_obj_filt_tumor.rds"))
+dev.off()
+
+```
+
+
+
+Visualize these on the spatial tissue 
+
+```{r}
+cov_obj2 = readRDS( file.path('/projectnb/paxlab/presh/projects/spatial_atac/Data/04_analysis/cnv/alleloscope/lowseq_tissue_from_existing/489_fresh_20260519/output_normal_iter', "rds", "cov_obj_filt_tumor.rds"))
+archr.meta = as.data.frame(proj@cellColData)
+clone.raw = as.data.frame(cov_obj2$clust_order)
+colnames(clone.raw) = c('CNV_clone')
+clone.meta = merge(archr.meta, clone.raw, by.x = 'barcode', by.y = 'row.names', all.x = T  )
+
+clone.meta$CNV_clone[is.na(clone.meta$CNV_clone)] <- "immune"
+  
+cluster_cols <- c(
+  "1" = "#CC6677",  # red
+  "2" = "#999933",  # dark blue
+  "3" = "#117733",  # green
+  "4" = "#332288",  # purple
+  "5" = "#FF8C33",  # orange
+  "6" = "#6699CC", 
+  "immune" = 'gray'
+)
+
+ggplot(clone.meta, aes(x = x_spatial, y = y_spatial, color = CNV_clone)) +
+  geom_point(size = 0.8, alpha = 0.9) +
+  coord_fixed() +
+  scale_color_manual(values = cluster_cols) +
+  theme_classic() +
+  labs(x = "x_spatial", y = "y_spatial", color = "Clusters")
+
+
+ggsave('/projectnb/paxlab/presh/projects/spatial_atac/Data/04_analysis/cnv/alleloscope/lowseq_tissue_from_existing/489_fresh_20260519/output_normal_iter/plots/spatial_clones.pdf', width = 10, height = 8)
+```
+
+
+Make a stacked barplot to compare the tile clusters and the spatial cnv clones
+
+```{r}
+clone.meta_counts <- clone.meta %>%
+  count(Clusters, CNV_clone)  
+
+
+ggplot(clone.meta_counts, aes(x = Clusters, y = n, fill = CNV_clone)) +
+  geom_bar(stat = "identity") +
+  labs(x = "Column 1", y = "Count", fill = "Column 2") + theme_classic() + 
+  scale_fill_manual(values = cluster_cols) 
+```
+
+
+# 5. 5kb Tile matrix exploration 
+Date: Jun 9 2026 
+
+Going to try 500kb bins for tilematrix and do clustering UMAP 
+
+```{r}
+proj2 <- addTileMatrix(proj, force = TRUE, tileSize = 5000)
+
+proj2 <- addIterativeLSI(
+    ArchRProj = proj2,
+    useMatrix = "TileMatrix", 
+    name = "IterativeLSI", 
+    iterations = 2, 
+    clusterParams = list( #See Seurat::FindClusters
+        resolution = c(0.2), 
+        sampleCells = 10000, 
+        n.start = 10
+    ), 
+    varFeatures = 25000, 
+    dimsToUse = 1:30, force = T 
+)
+
+proj2 <- addClusters(
+    input = proj2,
+    reducedDims = "IterativeLSI",
+    method = "Seurat",
+    name = "Clusters",
+    resolution = 0.8, force = T 
+)
+
+proj2 <- addUMAP(
+    ArchRProj = proj2, 
+    reducedDims = "IterativeLSI", 
+    name = "UMAP", 
+    nNeighbors = 30, 
+    minDist = 0.5, , force = T
+)
+
+plotEmbedding(ArchRProj = proj2, colorBy = "cellColData", name = "Clusters", embedding = "UMAP")
+
+
+proj2 <- addGeneScoreMatrix(proj2, matrixName = "GeneScoreMatrix_5kb", tileSize = 5000)
+
+markersGS <- getMarkerFeatures(
+    ArchRProj = proj2, 
+    useMatrix = "GeneScoreMatrix_5kb", 
+    groupBy = "Clusters",
+    bias = c("TSSEnrichment", "log10(nFrags)"),
+    testMethod = "wilcoxon"
+)
+markerList <- getMarkers(markersGS, cutOff = "FDR <= 0.01 & Log2FC >= 1.25")
+
+
+markerGenes  <- c(
+    "CD34",  #Early Progenitor
+    "GATA1", #Erythroid
+    "PAX5", "MS4A1", "MME", #B-Cell Trajectory
+    "CD14", "MPO", #Monocytes
+    "CD3D", "CD8A",#TCells
+    "ESR1", "ERBB2", "PGR"
+  )
+
+p <- plotEmbedding(
+    ArchRProj = proj2, 
+    colorBy = "GeneScoreMatrix_5kb", 
+    name = markerGenes, 
+    embedding = "UMAP",size =1.5, plotAs = 'points', 
+    quantCut = c(0.01, 0.95),
+    imputeWeights = NULL
+    
+)
+
+p3 <- lapply(p, function(x){
+    x + guides(color = FALSE, fill = FALSE) + 
+    theme_ArchR(baseSize = 6.5) +
+    theme(plot.margin = unit(c(0, 0, 0, 0), "cm")) +
+    theme(
+        axis.text.x=element_blank(), 
+        axis.ticks.x=element_blank(), 
+        axis.text.y=element_blank(), 
+        axis.ticks.y=element_blank()
+    )
+})
+do.call(cowplot::plot_grid, c(list(ncol = 3),p3))
+
+
+proj2 <- addImputeWeights(proj2)
+
+
+p1 <- plotEmbedding(
+    ArchRProj = proj2, 
+    colorBy = "GeneScoreMatrix_5kb", 
+    name = markerGenes, 
+    embedding = "UMAP",size =1.5, plotAs = 'points', 
+    imputeWeights = getImputeWeights(proj2)
+)
+
+
+p2 <- lapply(p1, function(x){
+    x + guides(color = FALSE, fill = FALSE) + 
+    theme_ArchR(baseSize = 6.5) +
+    theme(plot.margin = unit(c(0, 0, 0, 0), "cm")) +
+    theme(
+        axis.text.x=element_blank(), 
+        axis.ticks.x=element_blank(), 
+        axis.text.y=element_blank(), 
+        axis.ticks.y=element_blank()
+    )
+})
+do.call(cowplot::plot_grid, c(list(ncol = 3),p2))
+```
+
+
+
+# 6. Look at nFrags per spot 
+
+```{r}
+hist(proj@cellColData$nFrags, breaks = 50)
+hist(proj@cellColData$nMultiFrags, breaks = 50)
+
+hist(proj$NucleosomeRatio, breaks = 100, main = "Nucleosome Ratio")
+```
+
+
+
+# 7. Numbat analysis 
+
+## a. Generate reference files
+
+
+Need to create the reference/ normal barcodes and fragments file 
+```{r}
+cell_type = proj@cellColData[,'Clusters', drop = F ]
+cell_type$barcode = gsub('Lowseq_489#', '', rownames(cell_type))
+cell_type$barcode = gsub('-1', '', cell_type$barcode)
+cell_type$class <- ifelse(cell_type$Clusters %in% c("C1", "C2"), "normal", "tumor")
+cell_type <- as.data.frame(cell_type)
+rownames(cell_type) = cell_type$barcode
+cell_type = cell_type[,-1]
+colnames(cell_type) = c('cell', 'group')
+
+```
+
+
+
+```{r}
+ref_dir <- "/projectnb/paxlab/presh/projects/spatial_atac/Data/04_analysis/cnv/numbat/inputs/lowseq_489/reference"
+dir.create(ref_dir, recursive = TRUE, showWarnings = FALSE)
+
+write.table(cell_type[cell_type$COL2 == 'normal', 'COL1'],
+            file = file.path(ref_dir, "lowseq_489_barcodes_ref.tsv"),
+            quote = FALSE,
+            row.names = FALSE,
+            col.names = FALSE)
+```
+
+```{bash}
+ref_dir="/projectnb/paxlab/presh/projects/spatial_atac/Data/04_analysis/cnv/numbat/inputs/lowseq_489/reference"
+
+barcode_txt="$ref_dir/lowseq_489_barcodes_ref.tsv"
+
+frag_in="/projectnb/paxlab/presh/projects/spatial_atac/Data/01_inputs/fragments/lowseq_489/lowseq_489.fragments.sort.filtered_std.bed.gz"
+
+frag_out="$ref_dir/lowseq_489.fragments.sort.filtered_std_ref.bed.gz"
+
+zcat "$frag_in" \
+  | awk 'NR==FNR {keep[$1]=1; next} ($4 in keep)' "$barcode_txt" - \
+  | bgzip -c > "$frag_out"
+
+tabix -p bed "$frag_out"
+```
+
+
+
+```{r}
+library(numbat)
+
+atac_bin_mat <- readRDS("/projectnb/paxlab/presh/projects/spatial_atac/Data/04_analysis/cnv/numbat/inputs/lowseq_489/lowseq_489_atac_bin.rds") 
+
+
+normal_cell_barcodes = cell_type[cell_type$group == 'normal', 'cell']
+# Generate the normalized reference profile
+lambdas_ref_atac <- aggregate_counts(
+    count_mat = atac_bin_mat, 
+    annot = cell_type, 
+    normalized = TRUE
+)
+
+saveRDS(lambdas_ref_atac, '/projectnb/paxlab/presh/projects/spatial_atac/Data/04_analysis/cnv/numbat/inputs/lowseq_489/reference/lambdas_ATAC_bincnt.rds')
+```
+
+##b. Edit numbat_param
+
+```{r}
+param = readRDS('/projectnb/paxlab/presh/projects/spatial_atac/Data/04_analysis/cnv/numbat/reference/par_numbatm_custom.rds')
+param$t = 1e-4
+
+base::saveRDS(param, '/projectnb/paxlab/presh/projects/spatial_atac/Data/04_analysis/cnv/numbat/reference/par_numbatm_run2.rds')
+```
+
+
+
+
+## c. Look at results 
+
+### atac_run1
+```{r}
+library(ggplot2)
+library(numbat)
+library(dplyr)
+library(glue)
+library(data.table)
+library(ggtree)
+library(stringr)
+library(tidygraph)
+library(patchwork)
+```
+
+```{r}
+nb = Numbat$new(out_dir = '/projectnb/paxlab/presh/projects/spatial_atac/Data/04_analysis/cnv/numbat/results/lowseq_489/atac_bin_run1')
+
+
+```
+
+
+
+
+```{r}
+
+nb$plot_phylo_heatmap(
+  clone_bar = TRUE, 
+  p_min = 0.9
+)
+
+```
+
+Looks pretty bad tbh - we need to estimate tumor purity for each spot and then give as input to numbat 
+
+# 8. Tumor purity per spot 
+
+```{r}
+library(readr)
+
+snp_df = read_tsv('/projectnb/paxlab/presh/projects/spatial_atac/Data/04_analysis/cnv/numbat/inputs/lowseq_489/pileup_phase/lowseq_489_allele_counts.tsv.gz')
+allele_bin_df = readRDS('/projectnb/paxlab/presh/projects/spatial_atac/Data/04_analysis/cnv/numbat/inputs/lowseq_489/lowseq_489_atac_bin.rds')
+```
+
+```{r}
+var220 = readRDS('/projectnb/paxlab/presh/Rlibs/4.5/numbat/extdata/var220kb.rds')
+```
+
+
+
+```{r}
+library(Matrix)
+library(data.table)
+
+parse_numbat_bins <- function(allele_bin_df) {
+  bins <- rownames(allele_bin_df)
+
+  x <- data.table(bin_id = bins)
+  x[, CHROM := sub(":.*", "", bin_id)]
+  x[, START := as.integer(sub(".*:(.*)-.*", "\\1", bin_id))]
+  x[, END := as.integer(sub(".*-", "", bin_id))]
+
+  x[, CHROM := sub("^chr", "", CHROM)]
+  x[]
+}
+
+make_phased_snp_bin_counts <- function(snp_df, allele_bin_df) {
+  bins <- parse_numbat_bins(allele_bin_df)
+
+  snp <- as.data.table(snp_df)
+
+  snp[, CHROM := as.character(CHROM)]
+  snp[, CHROM := sub("^chr", "", CHROM)]
+  snp[, POS := as.integer(POS)]
+  snp[, AD := as.numeric(AD)]
+  snp[, DP := as.numeric(DP)]
+
+  # Keep only phased heterozygous SNPs.
+  snp <- snp[GT %in% c("0|1", "1|0")]
+  snp <- snp[!is.na(AD) & !is.na(DP) & DP > 0]
+
+  snp[, REF_count := DP - AD]
+  snp[, ALT_count := AD]
+
+  # VCF convention:
+  # 0 = REF, 1 = ALT
+  # 1|0 means hap1=ALT, hap2=REF
+  # 0|1 means hap1=REF, hap2=ALT
+  snp[, hap1_count := fifelse(GT == "1|0", ALT_count, REF_count)]
+  snp[, hap2_count := fifelse(GT == "1|0", REF_count, ALT_count)]
+
+  snp_ranges <- snp[, .(
+    cell,
+    snp_id,
+    CHROM,
+    START = POS,
+    END = POS,
+    hap1_count,
+    hap2_count,
+    DP
+  )]
+
+  setkey(bins, CHROM, START, END)
+  setkey(snp_ranges, CHROM, START, END)
+
+  joined <- foverlaps(
+    snp_ranges,
+    bins,
+    by.x = c("CHROM", "START", "END"),
+    by.y = c("CHROM", "START", "END"),
+    type = "within",
+    nomatch = 0
+  )
+
+  allele_bin_long <- joined[, .(
+    hap1_count = sum(hap1_count, na.rm = TRUE),
+    hap2_count = sum(hap2_count, na.rm = TRUE),
+    snp_depth = sum(DP, na.rm = TRUE),
+    n_snps = .N
+  ), by = .(cell, bin_id)]
+
+  allele_bin_long[]
+}
+# 
+# infer_spot_purity_proxy_rd_baf <- function(
+#   allele_bin_df,
+#   snp_df,
+#   min_spot_counts = 500,
+#   min_bin_depth_rd = 1,
+#   min_bin_snp_depth = 5,
+#   min_bins_per_spot = 50,
+#   top_variable_bins = 3000,
+#   baf_weight = 0.6,
+#   rd_weight = 0.4,
+#   pseudocount = 1
+# ) {
+#   # -------------------------
+#   # 1. Read-depth CNV burden
+#   # -------------------------
+#   mat <- allele_bin_df
+# 
+#   spot_depth <- Matrix::colSums(mat)
+#   keep_spots <- spot_depth >= min_spot_counts
+#   mat <- mat[, keep_spots, drop = FALSE]
+# 
+#   size_factor <- Matrix::colSums(mat)
+#   size_factor <- size_factor / median(size_factor)
+# 
+#   norm_mat <- t(t(mat) / size_factor)
+#   log_rdr <- log2(norm_mat + pseudocount)
+# 
+#   log_rdr <- as.matrix(log_rdr)
+#   bin_median <- apply(log_rdr, 1, median, na.rm = TRUE)
+#   log_rdr_centered <- sweep(log_rdr, 1, bin_median, "-")
+# 
+#   rd_bin_mad <- apply(log_rdr_centered, 1, mad, na.rm = TRUE)
+# 
+#   if (!is.null(top_variable_bins) && length(rd_bin_mad) > top_variable_bins) {
+#     rd_keep_bins <- names(sort(rd_bin_mad, decreasing = TRUE))[seq_len(top_variable_bins)]
+#     log_rdr_centered2 <- log_rdr_centered[rd_keep_bins, , drop = FALSE]
+#   } else {
+#     log_rdr_centered2 <- log_rdr_centered
+#   }
+# 
+#   rd_burden <- colMeans(abs(log_rdr_centered2), na.rm = TRUE)
+# 
+#   # -------------------------
+#   # 2. Phased BAF / CNLOH burden
+#   # -------------------------
+#   baf_long <- make_phased_snp_bin_counts(
+#     snp_df = snp_df,
+#     allele_bin_df = allele_bin_df
+#   )
+# 
+#   baf_long <- baf_long[cell %in% colnames(mat)]
+#   baf_long <- baf_long[snp_depth >= min_bin_snp_depth]
+# 
+#   baf_long[, total_hap_count := hap1_count + hap2_count]
+#   baf_long <- baf_long[total_hap_count > 0]
+# 
+#   baf_long[, baf := hap2_count / total_hap_count]
+#   baf_long[, minor_baf := pmin(baf, 1 - baf)]
+#   baf_long[, baf_imbalance := abs(baf - 0.5)]
+# 
+#   # Select bins with recurrent phased imbalance across spots.
+#   baf_bin_stats <- baf_long[, .(
+#     mean_imbalance = weighted.mean(baf_imbalance, w = total_hap_count, na.rm = TRUE),
+#     n_spots = uniqueN(cell)
+#   ), by = bin_id]
+# 
+#   baf_bin_stats <- baf_bin_stats[n_spots >= 10]
+#   baf_bin_stats <- baf_bin_stats[order(-mean_imbalance)]
+# 
+#   if (!is.null(top_variable_bins) && nrow(baf_bin_stats) > top_variable_bins) {
+#     baf_keep_bins <- baf_bin_stats$bin_id[seq_len(top_variable_bins)]
+#   } else {
+#     baf_keep_bins <- baf_bin_stats$bin_id
+#   }
+# 
+#   baf_long2 <- baf_long[bin_id %in% baf_keep_bins]
+# 
+#   baf_score <- baf_long2[, .(
+#     baf_burden = weighted.mean(baf_imbalance, w = total_hap_count, na.rm = TRUE),
+#     mean_minor_baf = weighted.mean(minor_baf, w = total_hap_count, na.rm = TRUE),
+#     n_baf_bins = uniqueN(bin_id),
+#     total_snp_depth = sum(total_hap_count, na.rm = TRUE)
+#   ), by = cell]
+# 
+#   baf_score <- baf_score[n_baf_bins >= min_bins_per_spot]
+# 
+#   # -------------------------
+#   # 3. Combine scores
+#   # -------------------------
+#   rd_score <- data.table(
+#     cell = names(rd_burden),
+#     rd_burden = as.numeric(rd_burden)
+#   )
+# 
+#   score <- merge(rd_score, baf_score, by = "cell", all.x = TRUE)
+# 
+#   scale01 <- function(x) {
+#     if (all(is.na(x))) return(x)
+#     rng <- range(x, na.rm = TRUE)
+#     if (diff(rng) == 0) return(rep(0, length(x)))
+#     (x - rng[1]) / diff(rng)
+#   }
+# 
+#   score[, rd_score_01 := scale01(rd_burden)]
+#   score[, baf_score_01 := scale01(baf_burden)]
+# 
+#   score[, purity_proxy := rd_weight * rd_score_01 + baf_weight * baf_score_01]
+# 
+#   score <- score[order(purity_proxy)]
+# 
+#   score[]
+# }
+
+
+```
+
+
+
+
+
+# Diagnosis plots 
+
+```{r}
+library(data.table)
+library(Matrix)
+library(ggplot2)
+
+diagnose_baf_sparsity <- function(
+  allele_bin_df,
+  snp_df,
+  min_bin_snp_depth = 5,
+  prior_strength = 20,
+  out_pdf = "baf_sparsity_diagnostics.pdf"
+) {
+  baf_long <- make_phased_snp_bin_counts(
+    snp_df = snp_df,
+    allele_bin_df = allele_bin_df
+  )
+
+  baf_long <- as.data.table(baf_long)
+  baf_long[, total_hap_count := hap1_count + hap2_count]
+  baf_long <- baf_long[total_hap_count > 0]
+
+  baf_long[, baf_raw := hap2_count / total_hap_count]
+  baf_long[, baf_shrunk := (hap2_count + prior_strength * 0.5) /
+             (total_hap_count + prior_strength)]
+  baf_long[, minor_baf_shrunk := pmin(baf_shrunk, 1 - baf_shrunk)]
+  baf_long[, baf_imbalance_shrunk := abs(baf_shrunk - 0.5)]
+
+  spot_stats <- baf_long[, .(
+    n_baf_bins_raw = uniqueN(bin_id),
+    total_snp_depth_raw = sum(total_hap_count),
+    median_bin_snp_depth = median(total_hap_count),
+    mean_bin_snp_depth = mean(total_hap_count),
+    frac_bins_depth_ge_5 = mean(total_hap_count >= 5),
+    frac_bins_depth_ge_10 = mean(total_hap_count >= 10),
+    frac_bins_depth_ge_20 = mean(total_hap_count >= 20)
+  ), by = cell]
+
+  bin_stats <- baf_long[, .(
+    n_spots = uniqueN(cell),
+    total_snp_depth = sum(total_hap_count),
+    median_depth = median(total_hap_count),
+    mean_depth = mean(total_hap_count),
+    n_observations = .N,
+    frac_extreme_raw = mean(baf_raw <= 0.05 | baf_raw >= 0.95),
+    frac_depth_lt_5 = mean(total_hap_count < 5)
+  ), by = bin_id]
+
+  filtered <- baf_long[total_hap_count >= min_bin_snp_depth]
+
+  spot_baf <- filtered[, .(
+    global_mean_minor_baf = weighted.mean(
+      minor_baf_shrunk,
+      total_hap_count,
+      na.rm = TRUE
+    ),
+    global_baf_burden = weighted.mean(
+      baf_imbalance_shrunk,
+      total_hap_count,
+      na.rm = TRUE
+    ),
+    n_baf_bins = uniqueN(bin_id),
+    total_snp_depth = sum(total_hap_count),
+    median_bin_snp_depth = median(total_hap_count)
+  ), by = cell]
+
+  pdf(out_pdf, width = 12, height = 8)
+
+  print(
+    ggplot(baf_long, aes(total_hap_count)) +
+      geom_histogram(bins = 80, fill = "gray70", color = "white") +
+      scale_x_log10() +
+      theme_bw() +
+      labs(
+        title = "SNP depth per spot-bin",
+        x = "hap1 + hap2 count per spot-bin, log10 scale",
+        y = "Number of spot-bin observations"
+      )
+  )
+
+  print(
+    ggplot(baf_long, aes(n_snps)) +
+      geom_histogram(bins = 60, fill = "gray70", color = "white") +
+      scale_x_log10() +
+      theme_bw() +
+      labs(
+        title = "Number of SNPs per spot-bin",
+        x = "SNPs per spot-bin, log10 scale",
+        y = "Number of spot-bin observations"
+      )
+  )
+
+  print(
+    ggplot(baf_long, aes(total_hap_count, baf_raw)) +
+      geom_point(alpha = 0.15, size = 0.4) +
+      scale_x_log10() +
+      geom_hline(yintercept = 0.5, color = "red") +
+      theme_bw() +
+      labs(
+        title = "Raw BAF versus SNP depth",
+        x = "hap1 + hap2 count per spot-bin",
+        y = "Raw BAF"
+      )
+  )
+
+  print(
+    ggplot(baf_long, aes(total_hap_count, baf_shrunk)) +
+      geom_point(alpha = 0.15, size = 0.4) +
+      scale_x_log10() +
+      geom_hline(yintercept = 0.5, color = "red") +
+      theme_bw() +
+      labs(
+        title = "Shrunk BAF versus SNP depth",
+        x = "hap1 + hap2 count per spot-bin",
+        y = "Shrunk BAF"
+      )
+  )
+
+  print(
+    ggplot(spot_stats, aes(total_snp_depth_raw)) +
+      geom_histogram(bins = 60, fill = "gray70", color = "white") +
+      theme_bw() +
+      labs(
+        title = "Total SNP depth per spot",
+        x = "Total SNP-supporting reads per spot",
+        y = "Number of spots"
+      )
+  )
+
+  print(
+    ggplot(spot_stats, aes(n_baf_bins_raw)) +
+      geom_histogram(bins = 60, fill = "gray70", color = "white") +
+      theme_bw() +
+      labs(
+        title = "Number of informative BAF bins per spot",
+        x = "BAF bins per spot",
+        y = "Number of spots"
+      )
+  )
+
+  print(
+    ggplot(bin_stats, aes(n_spots)) +
+      geom_histogram(bins = 60, fill = "gray70", color = "white") +
+      theme_bw() +
+      labs(
+        title = "How many spots support each bin?",
+        x = "Number of spots with SNP signal in bin",
+        y = "Number of bins"
+      )
+  )
+
+  print(
+    ggplot(bin_stats, aes(frac_extreme_raw, frac_depth_lt_5)) +
+      geom_point(alpha = 0.35, size = 0.7) +
+      theme_bw() +
+      labs(
+        title = "Noisy bins: extreme BAF versus low-depth fraction",
+        x = "Fraction of observations with raw BAF near 0 or 1",
+        y = "Fraction of observations with SNP depth < 5"
+      )
+  )
+
+  print(
+    ggplot(spot_baf, aes(total_snp_depth, global_mean_minor_baf)) +
+      geom_point(alpha = 0.7) +
+      geom_hline(yintercept = 0.5, color = "red") +
+      theme_bw() +
+      labs(
+        title = "Spot allele balance versus SNP depth",
+        x = "Total SNP depth after filtering",
+        y = "Global mean minor BAF, shrunk"
+      )
+  )
+
+  print(
+    ggplot(spot_baf, aes(n_baf_bins, global_mean_minor_baf)) +
+      geom_point(alpha = 0.7) +
+      geom_hline(yintercept = 0.5, color = "red") +
+      theme_bw() +
+      labs(
+        title = "Spot allele balance versus number of BAF bins",
+        x = "Number of BAF bins after filtering",
+        y = "Global mean minor BAF, shrunk"
+      )
+  )
+
+  dev.off()
+
+  list(
+    baf_long = baf_long,
+    spot_stats = spot_stats,
+    bin_stats = bin_stats,
+    spot_baf = spot_baf
+  )
+}
+```
+
+```{r}
+diag <- diagnose_baf_sparsity(
+  allele_bin_df = allele_bin_df,
+  snp_df = snp_df,
+  min_bin_snp_depth = 5,
+  prior_strength = 20,
+  out_pdf = "baf_sparsity_diagnostics.pdf"
+)
+
+summary(diag$spot_stats$total_snp_depth_raw)
+summary(diag$spot_stats$n_baf_bins_raw)
+summary(diag$spot_baf$global_mean_minor_baf)
+```
+
+
+# Allele dropout sweep 
+
+```{r}
+library(data.table)
+library(ggplot2)
+
+make_superbin_baf_counts <- function(
+  allele_bin_df,
+  snp_df,
+  bins_per_superbin = 20
+) {
+  baf_long <- make_phased_snp_bin_counts(
+    snp_df = snp_df,
+    allele_bin_df = allele_bin_df
+  )
+
+  bins <- parse_numbat_bins(allele_bin_df)
+  setDT(bins)
+  setorder(bins, CHROM, START)
+
+  bins[, superbin_index := ceiling(seq_len(.N) / bins_per_superbin), by = CHROM]
+  bins[, superbin_id := paste0(CHROM, "_superbin_", superbin_index)]
+
+  x <- merge(
+    as.data.table(baf_long),
+    bins[, .(bin_id, CHROM, superbin_id)],
+    by = "bin_id"
+  )
+
+  super <- x[, .(
+    hap1_count = sum(hap1_count, na.rm = TRUE),
+    hap2_count = sum(hap2_count, na.rm = TRUE),
+    snp_depth = sum(hap1_count + hap2_count, na.rm = TRUE),
+    n_snps = sum(n_snps, na.rm = TRUE),
+    n_native_bins = uniqueN(bin_id)
+  ), by = .(cell, superbin_id)]
+
+  super[]
+}
+
+evaluate_allele_dropout_by_binsize <- function(
+  allele_bin_df,
+  snp_df,
+  bins_per_superbin_grid = c(1, 2, 5, 10, 20, 50, 100),
+  min_depth = 10,
+  min_snps = 3,
+  dropout_minor_frac = 0.05,
+  min_usable_superbins_per_spot = 20
+) {
+  all_summary <- list()
+  all_spot_summary <- list()
+
+  for (b in bins_per_superbin_grid) {
+    message("Evaluating bins_per_superbin = ", b)
+
+    x <- make_superbin_baf_counts(
+      allele_bin_df = allele_bin_df,
+      snp_df = snp_df,
+      bins_per_superbin = b
+    )
+
+    x[, total := hap1_count + hap2_count]
+    x <- x[total > 0]
+
+    x[, minor_count := pmin(hap1_count, hap2_count)]
+    x[, minor_frac := minor_count / total]
+    x[, baf := hap2_count / total]
+
+    x[, usable := total >= min_depth & n_snps >= min_snps]
+
+    usable_x <- x[usable == TRUE]
+
+    if (nrow(usable_x) == 0) {
+      all_summary[[as.character(b)]] <- data.table(
+        bins_per_superbin = b,
+        n_usable_observations = 0
+      )
+      next
+    }
+
+    usable_x[, observed_dropout := minor_frac <= dropout_minor_frac]
+
+    # Expected dropout from binomial sampling if true BAF = 0.5.
+    # This prevents us from overcalling dropout when depth is tiny.
+    usable_x[, dropout_k := floor(dropout_minor_frac * total)]
+    usable_x[, expected_dropout_prob := 2 * pbinom(dropout_k, size = total, prob = 0.5)]
+    usable_x[, expected_dropout_prob := pmin(expected_dropout_prob, 1)]
+
+    spot_summary <- usable_x[, .(
+      n_usable_superbins = .N,
+      total_snp_depth = sum(total),
+      median_superbin_depth = median(total),
+      median_n_snps = median(n_snps),
+      observed_dropout_rate = mean(observed_dropout),
+      expected_dropout_rate = mean(expected_dropout_prob),
+      excess_dropout_rate = mean(observed_dropout) - mean(expected_dropout_prob),
+      median_minor_frac = median(minor_frac),
+      mean_abs_baf_dev = weighted.mean(abs(baf - 0.5), total)
+    ), by = cell]
+
+    spot_summary[, bins_per_superbin := b]
+
+    keep_spots <- spot_summary[
+      n_usable_superbins >= min_usable_superbins_per_spot
+    ]
+
+    global_summary <- data.table(
+      bins_per_superbin = b,
+      native_bin_resolution_used = paste0(b, " native Numbat bins"),
+      n_spots_total = uniqueN(x$cell),
+      n_spots_passing = nrow(keep_spots),
+      n_usable_observations = nrow(usable_x),
+      median_usable_superbins_per_spot = median(spot_summary$n_usable_superbins),
+      median_total_snp_depth_per_spot = median(spot_summary$total_snp_depth),
+      median_superbin_depth = median(usable_x$total),
+      median_snps_per_superbin = median(usable_x$n_snps),
+      observed_dropout_rate = mean(usable_x$observed_dropout),
+      expected_dropout_rate = mean(usable_x$expected_dropout_prob),
+      excess_dropout_rate = mean(usable_x$observed_dropout) -
+        mean(usable_x$expected_dropout_prob),
+      median_minor_frac = median(usable_x$minor_frac),
+      mean_abs_baf_dev = weighted.mean(abs(usable_x$baf - 0.5), usable_x$total)
+    )
+
+    all_summary[[as.character(b)]] <- global_summary
+    all_spot_summary[[as.character(b)]] <- spot_summary
+  }
+
+  list(
+    global = rbindlist(all_summary, fill = TRUE),
+    per_spot = rbindlist(all_spot_summary, fill = TRUE)
+  )
+}
+```
+
+
+
+```{r}
+dropout_res <- evaluate_allele_dropout_by_binsize(
+  allele_bin_df = allele_bin_df,
+  snp_df = snp_df,
+  bins_per_superbin_grid = c(1, 2, 5, 10, 20, 50, 100),
+  min_depth = 10,
+  min_snps = 3,
+  dropout_minor_frac = 0.05,
+  min_usable_superbins_per_spot = 20
+)
+
+dropout_res$global
+```
+
+```{r}
+plot_dropout_binsize_diagnostics <- function(dropout_res) {
+  g <- dropout_res$global
+
+  p1 <- ggplot(g, aes(bins_per_superbin, excess_dropout_rate)) +
+    geom_line() +
+    geom_point(size = 2) +
+    scale_x_log10() +
+    theme_bw() +
+    labs(
+      title = "Excess allele dropout versus bin size",
+      x = "Native Numbat bins pooled per superbin",
+      y = "Observed dropout - expected binomial dropout"
+    )
+
+  p2 <- ggplot(g, aes(bins_per_superbin, n_spots_passing)) +
+    geom_line() +
+    geom_point(size = 2) +
+    scale_x_log10() +
+    theme_bw() +
+    labs(
+      title = "Spots retained versus bin size",
+      x = "Native Numbat bins pooled per superbin",
+      y = "Number of spots passing coverage"
+    )
+
+  p3 <- ggplot(g, aes(bins_per_superbin, median_usable_superbins_per_spot)) +
+    geom_line() +
+    geom_point(size = 2) +
+    scale_x_log10() +
+    theme_bw() +
+    labs(
+      title = "Usable genomic bins per spot",
+      x = "Native Numbat bins pooled per superbin",
+      y = "Median usable superbins per spot"
+    )
+
+  p4 <- ggplot(g, aes(bins_per_superbin, median_superbin_depth)) +
+    geom_line() +
+    geom_point(size = 2) +
+    scale_x_log10() +
+    theme_bw() +
+    labs(
+      title = "SNP depth per superbin",
+      x = "Native Numbat bins pooled per superbin",
+      y = "Median SNP depth"
+    )
+
+  print(p1)
+  print(p2)
+  print(p3)
+  print(p4)
+}
+
+plot_dropout_binsize_diagnostics(dropout_res)
+
+pdf("allele_dropout_binsize_diagnostics.pdf", width = 8, height = 6)
+plot_dropout_binsize_diagnostics(dropout_res)
+dev.off()
+```
+
+
+```{r}
+choose_optimal_binsize <- function(
+  dropout_res,
+  max_excess_dropout = 0.05,
+  min_spots_passing_frac = 0.70,
+  min_usable_superbins_per_spot = 30,
+  min_median_superbin_depth = 20
+) {
+  g <- copy(dropout_res$global)
+
+  max_spots <- max(g$n_spots_total, na.rm = TRUE)
+
+  candidates <- g[
+    excess_dropout_rate <= max_excess_dropout &
+      n_spots_passing >= min_spots_passing_frac * max_spots &
+      median_usable_superbins_per_spot >= min_usable_superbins_per_spot &
+      median_superbin_depth >= min_median_superbin_depth
+  ]
+
+  if (nrow(candidates) == 0) {
+    warning("No bin size passed all thresholds. Returning closest compromise.")
+    g[, rank_score :=
+        rank(excess_dropout_rate, ties.method = "average") -
+        rank(n_spots_passing, ties.method = "average") -
+        rank(median_usable_superbins_per_spot, ties.method = "average")]
+    return(g[order(rank_score)][1])
+  }
+
+  candidates[order(bins_per_superbin)][1]
+}
+
+optimal <- choose_optimal_binsize(
+  dropout_res,
+  max_excess_dropout = 0.05,
+  min_spots_passing_frac = 0.70,
+  min_usable_superbins_per_spot = 30,
+  min_median_superbin_depth = 20
+)
+
+optimal
+```
+
+
+
+
+

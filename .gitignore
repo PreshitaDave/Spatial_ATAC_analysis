@@ -8,6 +8,17 @@ analysis/src/Rplots.pdf
 analysis/src/monopgen/**/qsub_logs*/
 analysis/src/monopgen/**/*.log
 analysis/src/monopgen/**/*.error.log
+Rplots.pdf
+ArchRLogs/
+**/ArchRLogs/
+analysis/binsize_comparison/archr_projects/
+analysis/src/alignment/mosaicfield_outputs/
+analysis/src/alignment/archive/mosaicfield_outputs/
+analysis/src/alignment/MOSAICField/
+analysis/binsize_comparison/distribution_modeling/*.pdf
+**/.DS_Store
+**/.virtual_documents/
+*.rds
 
 # RStudio / editor artifacts
 .Rhistory

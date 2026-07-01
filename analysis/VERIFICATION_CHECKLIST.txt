@@ -1,0 +1,128 @@
+================================================================================
+POST-SUBMISSION VERIFICATION CHECKLIST
+================================================================================
+
+After running:
+  bash analysis/src/cnv_calling/numbat/submit_all_tissue_numbat_orchestrated.sh
+
+YOU WILL SEE THIS OUTPUT:
+================================================================================
+
+[STEP 1] Cleaning up buggy lowseq jobs...
+  Killing job 5692040...
+  Killing job 5692041...
+  Removing contaminated pileup directories...
+  ✓ Cleaned
+
+[STEP 2] Checking deepseq_488B status...
+  ✓ Job 5692082 (numbat_prep_deepseq_488B) still RUNNING
+
+[STEP 3] Submitting lowseq prepare jobs (SERIAL: 488B → 489)...
+  Submitting: numbat_prep_lowseq_488B
+    Job ID: 5692XXX
+  Submitting: numbat_prep_lowseq_489 (depends on 5692XXX)
+    Job ID: 5692YYY (will start after 5692XXX)
+
+[STEP 4] Submitting deepseq prepare jobs...
+  deepseq_488B (5692082) still running
+  Submitting: numbat_prep_deepseq_489 (depends on 5692082)
+    Job ID: 5692ZZZ (will start after 5692082)
+
+================================================================================
+SUBMISSION SUMMARY
+================================================================================
+
+LOWSEQ JOBS:
+  numbat_prep_lowseq_488B       Job 5692XXX
+  numbat_prep_lowseq_489        Job 5692YYY (→ depends on 5692XXX)
+
+DEEPSEQ JOBS:
+  numbat_prep_deepseq_488B      Job 5692082 (already running)
+  numbat_prep_deepseq_489       Job 5692ZZZ (→ depends on 5692082)
+
+================================================================================
+
+THEN VERIFY WITH THESE COMMANDS:
+================================================================================
+
+1. Check all NUMBAT jobs are submitted:
+   qstat -u preshita | grep numbat
+
+   EXPECTED OUTPUT:
+   job-ID  prior   name                  user         state  queue
+   5692040 0.10032 numbat_prep_lowseq_488B preshita q     cds@scc-XXXX.scc.bu.edu 8
+   5692041 0.10032 numbat_prep_lowseq_489   preshita qw    cds@scc-XXXX.scc.bu.edu 8
+   5692082 0.10032 numbat_prep_deepseq_488B preshita r     cds@scc-XXXX.scc.bu.edu 8
+   5692XXX 0.10032 numbat_prep_deepseq_489  preshita qw    cds@scc-XXXX.scc.bu.edu 8
+
+   KEY INDICATORS:
+   ✓ Job states show: 'r' (running) or 'qw' (queued waiting for dependency)
+   ✓ lowseq_489 shows 'qw' (waiting for lowseq_488B)
+   ✓ deepseq_489 shows 'qw' (waiting for deepseq_488B)
+   ✗ NO jobs show 'E' (error state)
+
+2. Check job dependencies:
+   qstat -j 5692YYY
+   
+   EXPECTED OUTPUT (search for "hard_resource_list"):
+   Should see: hold_jid 5692XXX
+
+3. Monitor deepseq_488B progress:
+   tail -f analysis/qsub_logs/numbat_prep_deepseq_488B.5692082.out
+   
+   EXPECTED OUTPUT:
+   [I::csp_fetch_core][Thread-X] XX.00% SNPs processed.
+   ...eventually...
+   Running phasing
+   ...running Eagle...
+
+4. Verify barcode counts are CORRECT:
+   grep "num_of_barcodes" analysis/qsub_logs/numbat_prep_lowseq_488B.5692XXX.out
+   
+   EXPECTED:
+   num_of_barcodes = 4671 (for lowseq 488B)
+   
+   grep "num_of_barcodes" analysis/qsub_logs/numbat_prep_deepseq_489.5692ZZZ.out
+   
+   EXPECTED:
+   num_of_barcodes = 4671 (for deepseq 489 - NOT 11645!)
+
+5. After prep jobs complete, verify output files exist:
+   ls -lh Data/04_analysis/cnv/numbat/inputs/alleles/pileup/
+   
+   EXPECTED:
+   drwxrwxr-x deepseq_488B_atac/
+   drwxrwxr-x deepseq_489_atac/
+   drwxrwxr-x lowseq_488B_atac/
+   drwxrwxr-x lowseq_489_atac/
+   
+   Note: Each TISSUE gets its OWN directory, NO shared directories
+
+6. Verify allele count files are tissue-specific:
+   ls -lh Data/04_analysis/cnv/numbat/inputs/*.gz
+   
+   EXPECTED:
+   deepseq_488B_comb_allele_counts.tsv.gz
+   deepseq_489_comb_allele_counts.tsv.gz
+   lowseq_488B_comb_allele_counts.tsv.gz
+   lowseq_489_comb_allele_counts.tsv.gz
+
+================================================================================
+TROUBLESHOOTING
+================================================================================
+
+IF a job shows state 'E' (error):
+  → Check log file for error
+  → Review input paths in log
+  → Check barcode count matches tissue
+
+IF lowseq_489 doesn't start after 488B completes:
+  → Check dependency: qstat -j JOBID | grep hold_jid
+  → May need manual submission if dependency missed
+
+IF barcode count is WRONG:
+  → Job will FAIL with validation error
+  → Check which barcode file was loaded
+  → Verify tissue parameter was passed correctly
+
+================================================================================

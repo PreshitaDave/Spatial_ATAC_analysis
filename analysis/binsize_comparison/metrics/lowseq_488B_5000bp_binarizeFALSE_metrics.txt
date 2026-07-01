@@ -1,0 +1,13 @@
+Tissue: lowseq_488B
+Tilesize: 5000 bp
+Binarize: FALSE
+Cells: 11381
+Tiles: 606219
+Non-zero elements: 357412899
+Density: 0.051804
+Sparsity: 0.9482 (94.82%)
+Mean tiles per cell: 66323.76
+Median tiles per cell: 66040.0
+Mean cells per tile: 1245.1452
+Median cells per tile: 877.0
+

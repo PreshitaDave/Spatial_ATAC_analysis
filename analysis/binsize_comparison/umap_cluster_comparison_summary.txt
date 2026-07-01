@@ -2,24 +2,33 @@
 ArchR UMAP Cluster Comparison Summary
 ====================================
 
-Generated: 2026-06-22 18:42:09 
+Generated: 2026-06-23 13:44:05
 
-Variants analyzed:
-  500bp_FALSE: 4178 cells, 5 clusters
-  500bp_TRUE: 4178 cells, 5 clusters
-  5000bp_FALSE: 4178 cells, 5 clusters
-  5000bp_TRUE: 4178 cells, 5 clusters
+Tissues x Variants analyzed:
+  lowseq_489 / 500bp_FALSE: 4178 cells, 5 clusters
+  lowseq_489 / 500bp_TRUE: 4178 cells, 5 clusters
+  lowseq_489 / 5000bp_FALSE: 4178 cells, 5 clusters
+  lowseq_489 / 5000bp_TRUE: 4178 cells, 5 clusters
 
-Marker genes evaluated:
-  
+  lowseq_488B / 500bp_FALSE: 11381 cells, 5 clusters
+  lowseq_488B / 500bp_TRUE: 11381 cells, 4 clusters
+  lowseq_488B / 5000bp_FALSE: 11381 cells, 6 clusters
+  lowseq_488B / 5000bp_TRUE: 11381 cells, 6 clusters
 
-Comparison plots:
-  Page 1: UMAP colored by Clusters (visual assessment of cluster separation)
-  Pages 2+: One marker gene per page, faceted by variant
-           Check for consistency of marker expression patterns across variants
+  deepseq_488B / 500bp_FALSE: 7841 cells, 4 clusters
+  deepseq_488B / 500bp_TRUE: 7841 cells, 4 clusters
+  deepseq_488B / 5000bp_FALSE: 7841 cells, 6 clusters
+  deepseq_488B / 5000bp_TRUE: 7841 cells, 6 clusters
+
+  deepseq_489 / 500bp_FALSE: 3987 cells, 6 clusters
+  deepseq_489 / 500bp_TRUE: 3987 cells, 6 clusters
+  deepseq_489 / 5000bp_FALSE: 3987 cells, 5 clusters
+  deepseq_489 / 5000bp_TRUE: 3987 cells, 5 clusters
+
+Comparison plot:
+  One page per tissue: UMAP colored by Clusters for all 4 binsize/binarize variants
 
 Key observations to check:
   1. Cluster separation: Are clusters similarly separated across all variants?
-  2. Marker specificity: Do markers show expected tissue/cell-type patterns?
-  3. Consistency: Does 500bp vs 5000bp or binarize vs not-binarize show major differences?
-  4. Artifacts: Any unusual/noisy embedding patterns in particular variant(s)?
+  2. Consistency: Does 500bp vs 5000bp or binarize vs not-binarize show major differences?
+  3. Artifacts: Any unusual/noisy embedding patterns in particular variant(s)?

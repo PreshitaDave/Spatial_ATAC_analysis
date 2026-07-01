@@ -10,7 +10,8 @@
 #   Set PROJECT_ROOT, NSLOTS for cluster resource control
 # Output:
 #   - Data/01_outputs/archR_objects/{object}/{object}_archR_project/
-#   - analysis/plots/cnv_analysis/archR_qc_{object}.pdf (comprehensive QC plots)
+#   - Data/01_inputs/arrow/{object}.arrow (Arrow files)
+#   - analysis/plots/archr_obj/archR_qc_{object}.pdf (comprehensive QC plots)
 # ============================================================================
 
 suppressPackageStartupMessages({
@@ -28,7 +29,7 @@ suppressPackageStartupMessages({
 
 project_root <- Sys.getenv("PROJECT_ROOT", "/projectnb/paxlab/presh/projects/spatial_atac")
 threads <- as.integer(Sys.getenv("NSLOTS", "4"))
-min_tss <- 4
+min_tss <- 3
 min_frags <- 1000
 max_frags <- Inf
 doublet_cutoff <- 2
@@ -48,10 +49,12 @@ log_msg <- function(tag, msg) {
 data_dir <- file.path(project_root, "Data", "01_inputs")
 output_root <- file.path(project_root, "Data", "01_outputs")
 archr_output <- file.path(output_root, "archR_objects")
-plot_output <- file.path(project_root, "analysis", "plots", "cnv_analysis")
+arrow_output <- file.path(data_dir, "arrow")
+plot_output <- file.path(project_root, "analysis", "plots", "archr_obj")
 
 dir.create(output_root, recursive = TRUE, showWarnings = FALSE)
 dir.create(archr_output, recursive = TRUE, showWarnings = FALSE)
+dir.create(arrow_output, recursive = TRUE, showWarnings = FALSE)
 dir.create(plot_output, recursive = TRUE, showWarnings = FALSE)
 
 # ============================================================================
@@ -124,7 +127,7 @@ normalize_barcode <- function(barcode) {
 }
 
 create_arrow_from_fragments <- function(fragments_path, sample_name, output_dir, threads = 4) {
-  """Create Arrow file from fragment BED file"""
+  # Create Arrow file from fragment BED file
   log_msg("arrow", sprintf("Creating Arrow from: %s", fragments_path))
   
   arrow_output <- file.path(output_dir, paste0(sample_name, ".arrow"))
@@ -135,11 +138,14 @@ create_arrow_from_fragments <- function(fragments_path, sample_name, output_dir,
   }
   
   tryCatch({
+    # Change to output directory for arrow creation
+    original_wd <- getwd()
+    setwd(output_dir)
+    
     ArrowFiles <- createArrowFiles(
       inputFiles = fragments_path,
       sampleNames = sample_name,
-      outputNames = paste0(sample_name, ".arrow"),
-      outputDirectory = output_dir,
+      outputNames = sample_name,  # Don't add .arrow - ArchR adds it automatically
       minTSS = 2,
       minFrags = 100,
       maxFrags = Inf,
@@ -149,16 +155,21 @@ create_arrow_from_fragments <- function(fragments_path, sample_name, output_dir,
       threads = threads,
       verbose = TRUE
     )
+    
+    # Restore original working directory
+    setwd(original_wd)
+    
     log_msg("arrow", sprintf("Created Arrow: %s", arrow_output))
     return(arrow_output)
   }, error = function(e) {
+    setwd(original_wd)
     log_msg("error", sprintf("Failed to create Arrow: %s", e$message))
     return(NULL)
   })
 }
 
 filter_to_barcodes <- function(proj, barcode_list) {
-  """Subset ArchR project to specific barcodes"""
+  # Subset ArchR project to specific barcodes
   all_cells <- getCellNames(proj)
   all_cells_norm <- normalize_barcode(all_cells)
   
@@ -175,7 +186,7 @@ filter_to_barcodes <- function(proj, barcode_list) {
 }
 
 plot_qc_metrics <- function(proj, sample_name) {
-  """Generate QC metric plots"""
+  # Generate QC metric plots
   plots <- list()
   
   # TSS vs nFrags
@@ -236,7 +247,7 @@ plot_qc_metrics <- function(proj, sample_name) {
 }
 
 plot_clustering_umap <- function(proj, sample_name) {
-  """Plot clustering and UMAP"""
+  # Plot clustering and UMAP
   plots <- list()
   
   # UMAP by cluster
@@ -302,12 +313,11 @@ for (obj_name in names(objects)) {
   
   tryCatch({
     # 1. Load or create Arrow file
-    arrow_dir <- file.path(obj_output_dir, "arrows")
-    dir.create(arrow_dir, recursive = TRUE, showWarnings = FALSE)
+    # Arrow files are saved to Data/01_inputs/arrow/
     arrow_file <- create_arrow_from_fragments(
       obj_info$fragments,
       obj_info$sample_name,
-      arrow_dir,
+      arrow_output,
       threads = threads
     )
     
@@ -321,8 +331,7 @@ for (obj_name in names(objects)) {
     proj <- ArchRProject(
       ArrowFiles = arrow_file,
       outputDirectory = file.path(obj_output_dir, paste0(obj_name, "_archR_project")),
-      copyArrows = FALSE,
-      force = TRUE
+      copyArrows = FALSE
     )
     log_msg("step", sprintf("Created project with %d cells", ncol(proj)))
     
@@ -338,7 +347,10 @@ for (obj_name in names(objects)) {
     before_qc <- ncol(proj_filt)
     
     # Remove cells failing QC thresholds
-    qc_pass <- proj_filt$TSSEnrichment >= min_tss & proj_filt$log10(nFrags) >= log10(min_frags)
+    # Note: nFrags column stores log10-transformed values
+    tss_vec <- proj_filt$TSSEnrichment
+    nfrags_vec <- proj_filt$nFrags
+    qc_pass <- tss_vec >= min_tss & nfrags_vec >= log10(min_frags)
     proj_qc <- proj_filt[qc_pass, ]
     
     log_msg("step", sprintf("After QC: %d/%d cells pass (%.1f%% retained)",
@@ -366,7 +378,7 @@ for (obj_name in names(objects)) {
     log_msg("step", "Clustering cells")
     proj_qc <- addClusters(
       input = proj_qc,
-      reduction = "IterativeLSI",
+      reducedDims = "IterativeLSI",
       method = "Seurat",
       name = "Clusters",
       resolution = 0.8,
@@ -378,23 +390,46 @@ for (obj_name in names(objects)) {
     log_msg("step", "Computing UMAP")
     proj_qc <- addUMAP(
       ArchRProj = proj_qc,
-      reduction = "IterativeLSI",
+      reducedDims = "IterativeLSI",
       name = "UMAP",
-      nNeighbors = 30,
-      minDist = 0.5,
-      metric = "cosine",
       force = TRUE
     )
     log_msg("step", "UMAP complete")
     
-    # 8. Remove doublets (optional - if available)
-    if (!is.null(proj_qc$nDoublets)) {
-      log_msg("step", "Filtering doublets")
-      before_doublet <- ncol(proj_qc)
+    # 8. Detect and remove doublets
+    log_msg("step", "Detecting doublets using fragment-based approach")
+    before_doublet <- ncol(proj_qc)
+    
+    # Method 1: Check if nDoublets column exists (from Arrow file)
+    has_doublets_col <- "nDoublets" %in% colnames(getCellColData(proj_qc))
+    
+    if (has_doublets_col) {
+      log_msg("step", "Using nDoublets column from Arrow file")
       doublet_pass <- proj_qc$nDoublets < doublet_cutoff
+      doublets_detected <- sum(!doublet_pass)
+    } else {
+      log_msg("step", "Computing doublet score based on fragment distribution")
+      # Method 2: Flag potential doublets as high-fragment outliers
+      # Note: nFrags column stores log10-transformed values
+      nfrags <- proj_qc$nFrags
+      # Identify high-fragment outliers (potential doublets)
+      # Use 1.5*IQR + 3rd quartile as cutoff
+      q3 <- quantile(nfrags, 0.75, na.rm = TRUE)
+      iqr <- IQR(nfrags, na.rm = TRUE)
+      upper_cutoff <- q3 + 1.5 * iqr
+      
+      doublet_pass <- nfrags <= upper_cutoff
+      doublets_detected <- sum(!doublet_pass)
+      log_msg("step", sprintf("Fragment cutoff for doublets: %.2f (Q3 + 1.5*IQR)", upper_cutoff))
+    }
+    
+    if (doublets_detected > 0) {
       proj_qc <- proj_qc[doublet_pass, ]
-      log_msg("step", sprintf("After doublet removal: %d/%d cells (%.1f%% retained)",
-                              ncol(proj_qc), before_doublet, 100 * ncol(proj_qc) / before_doublet))
+      log_msg("step", sprintf("After doublet removal: %d/%d cells removed, %d cells retained (%.1f%%)",
+                              doublets_detected, before_doublet, ncol(proj_qc), 
+                              100 * ncol(proj_qc) / before_doublet))
+    } else {
+      log_msg("step", sprintf("No doublets detected - all %d cells retained", ncol(proj_qc)))
     }
     
     # 9. Generate comprehensive plots

@@ -1,0 +1,141 @@
+---
+title: "Basic QC seurat"
+editor_options: 
+  chunk_output_type: console
+---
+
+Date: Jun 26 2026
+
+```{r}
+.libPaths()
+library(Seurat)
+library(dplyr)
+library(patchwork)
+```
+
+
+
+```{r}
+# Load the PBMC dataset
+tiss_489.data <- Read10X(data.dir = "/projectnb/paxlab/DATA/DriesSpatial/scRNAseq/WM_DR_SJ_487/outs/filtered_feature_bc_matrix")
+# Initialize the Seurat object with the raw (non-normalized data).
+tiss_489 <- CreateSeuratObject(counts = tiss_489.data, project = "tiss_489", min.cells = 3, min.features = 200)
+tiss_489
+```
+
+```{r}
+# The [[ operator can add columns to object metadata. This is a great place to stash QC stats
+tiss_489[["percent.mt"]] <- PercentageFeatureSet(tiss_489, pattern = "^MT-")
+# Visualize QC metrics as a violin plot
+VlnPlot(tiss_489, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+```
+
+
+```{r}
+# FeatureScatter is typically used to visualize feature-feature relationships, but can be used
+# for anything calculated by the object, i.e. columns in object metadata, PC scores etc.
+
+plot1 <- FeatureScatter(tiss_489, feature1 = "nCount_RNA", feature2 = "percent.mt")
+plot2 <- FeatureScatter(tiss_489, feature1 = "nCount_RNA", feature2 = "nFeature_RNA")
+plot1 + plot2
+```
+
+
+Going to filter out the low quality cells 
+```{r}
+tiss_489.2 <- subset(tiss_489, subset = nFeature_RNA > 200 & percent.mt < 20)
+VlnPlot(tiss_489.2, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+plot1 <- FeatureScatter(tiss_489.2, feature1 = "nCount_RNA", feature2 = "percent.mt")
+plot2 <- FeatureScatter(tiss_489.2, feature1 = "nCount_RNA", feature2 = "nFeature_RNA")
+plot1 + plot2
+```
+
+There could be doublets - but we'll see that later and exclude if needed - for now not being super restrictive 
+
+```{r}
+tiss_489.2 <- NormalizeData(tiss_489.2, normalization.method = "LogNormalize", scale.factor = 10000)
+```
+
+```{r}
+tiss_489.2 <- FindVariableFeatures(tiss_489.2, selection.method = "vst", nfeatures = 2000)
+
+# Identify the 10 most highly variable genes
+top10 <- head(VariableFeatures(tiss_489.2), 10)
+
+# plot variable features with and without labels
+plot1 <- VariableFeaturePlot(tiss_489.2)
+plot2 <- LabelPoints(plot = plot1, points = top10, repel = TRUE)
+plot1 + plot2
+```
+
+
+
+```{r}
+all.genes <- rownames(tiss_489.2)
+tiss_489.2 <- ScaleData(tiss_489.2, features = all.genes)
+```
+
+Do I need to cell cycle regressing? Not sure 
+
+
+
+```{r}
+tiss_489.2 <- RunPCA(tiss_489.2, features = VariableFeatures(object = tiss_489.2))
+# Examine and visualize PCA results a few different ways
+print(tiss_489.2[["pca"]], dims = 1:5, nfeatures = 5)
+```
+
+
+```{r}
+VizDimLoadings(tiss_489.2, dims = 1:2, reduction = "pca")
+```
+
+
+```{r}
+DimPlot(tiss_489.2, reduction = "pca") + NoLegend()
+ElbowPlot(tiss_489.2)
+```
+
+```{r}
+tiss_489.2 <- FindNeighbors(tiss_489.2, dims = 1:15)
+tiss_489.2 <- FindClusters(tiss_489.2, resolution = 0.5)
+```
+
+```{r}
+tiss_489.2 <- RunUMAP(tiss_489.2, dims = 1:15)
+# note that you can set `label = TRUE` or use the LabelClusters function to help label
+# individual clusters
+DimPlot(tiss_489.2, reduction = "umap")
+```
+
+```{r}
+FeaturePlot(tiss_489.2, reduction = "umap", features = "nCount_RNA") 
+FeaturePlot(tiss_489.2, reduction = "umap", features = "nFeature_RNA")
+```
+
+
+
+```{r}
+tiss_489.markers <- FindAllMarkers(tiss_489.2, only.pos = TRUE)
+tiss_489.markers %>%
+    group_by(cluster) %>%
+    dplyr::filter(avg_log2FC > 2.5)
+```
+
+
+```{r}
+FeaturePlot(tiss_489.2, features = c("MS4A1", "GNLY", "CD3E", "CD14", "FCGR3A", "LYZ", "CD8A", "EPCAM", "KRT8", "ESR1", "PGR", "ERBB2", "MKI67", "KRT14", "KRT17", "EGFR"),  pt.size = 0.1)
+```
+
+```{r}
+tiss_489.markers %>%
+    group_by(cluster) %>%
+    dplyr::filter(avg_log2FC > 2) %>%
+    slice_head(n = 10) %>%
+    ungroup() -> top10
+DoHeatmap(tiss_489.2, features = top10$gene) + NoLegend()
+```
+
+
+
+

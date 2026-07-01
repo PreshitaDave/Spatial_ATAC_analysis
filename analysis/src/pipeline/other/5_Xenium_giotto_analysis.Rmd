@@ -7,21 +7,30 @@ editor_options:
 
 # Creating Xenium object 
 
+conda activate /projectnb/paxlab/presh/env/conda_env/my_r_arrow_env
+R
+
 ```{r}
-.libPaths('/projectnb/paxlab/presh/giotto_libs')
+.libPaths('/projectnb/paxlab/presh/env/R_4.5.2/giotto_libs')
 .libPaths()
 
 library(Giotto)
+
 # library(ggplot2)
 
 # Ensure Giotto can access the python env
-set_giotto_python_path(python_path = '/usr3/graduate/preshita/.conda/envs/giotto_env/bin/python', verbose = NULL, initialize = TRUE)
+# set_giotto_python_path(python_path = "/projectnb/paxlab/presh/env/conda_env/my_r_arrow_env/bin/python")
+# set_giotto_python_path(python_path = '/usr3/graduate/preshita/.conda/envs/giotto_env/bin/python', verbose = NULL, initialize = TRUE)
+GiottoClass::set_giotto_python_path(
+  python_path = "/projectnb/paxlab/presh/env/conda_env/giotto_env/bin/python",
+  initialize = TRUE
+)
 
 
 data_path = '/projectnb/paxlab/DATA/DriesSpatial/Xenium/output-XETG00253__0048833__488B__20241217__182301'
 
 
-results_folder <- '/projectnb/paxlab/presh/giotto_output'
+results_folder <- '/projectnb/paxlab/presh/projects/spatial_atac/Data/04_analysis/multiomic/Xenium_488B/giotto_output'
 
 instrs <- createGiottoInstructions(
   show_plot = T,
@@ -54,6 +63,9 @@ xenium488B = normalizeGiotto(xenium488B)
 
 ```
 
+
+
+
 ## Statistics
 ```{r}
 
@@ -62,7 +74,7 @@ xenium488B = addStatistics(xenium488B)
 xenium_crop <- subsetGiottoLocs(xenium488B, x_min = 5000, x_max = 10600)
 my_spatPlot <- spatPlot2D(gobject = xenium_crop,
                           spat_unit = 'cell',
-                          cell_color = 'leiden_clus',
+                          # cell_color = 'leiden_clus',
                           point_size = 0.025,
                           point_shape = 'no_border',
                           # color_as_factor = F,
@@ -73,10 +85,58 @@ my_spatPlot <- spatPlot2D(gobject = xenium_crop,
                             base_width = 15,
                             base_height = 15))
 
+nrow(xenium_crop@expression$cell$rna$raw)     # number of features (genes)
+ncol(xenium_crop@expression$cell$rna$raw)     # number of cells
+xenium_crop@expression$cell$rna$raw[1:5, 1:5]
+
+head(xenium_crop@spatial_locs$cell)
 
 
+# Write the expression matrix and metadata to files for use in other tools
+library(Matrix)
+expr_obj <- xenium_crop@expression$cell$rna$raw
 
+# Extract the actual sparse matrix
+expr_mat <- expr_obj@exprMat
+
+# Write Matrix Market and metadata
+writeMM(expr_mat, "/projectnb/paxlab/presh/projects/spatial_atac/Data/04_analysis/multiomic/Xenium_488B/giotto_output/xenium_expr.mtx")
+write.csv(
+  data.frame(gene = rownames(expr_mat)),
+  "/projectnb/paxlab/presh/projects/spatial_atac/Data/04_analysis/multiomic/Xenium_488B/giotto_output/xenium_genes.csv",
+  row.names = FALSE)
+write.csv(
+  data.frame(cell = colnames(expr_mat)),
+  "/projectnb/paxlab/presh/projects/spatial_atac/Data/04_analysis/multiomic/Xenium_488B/giotto_output/xenium_cells.csv",
+  row.names = FALSE)
+
+
+rawlocs <- xenium_crop@spatial_locs$cell$raw
+cell_meta <- data.frame(
+  cell_ID = rawlocs$cell_ID,
+  sdimx = rawlocs$sdimx,
+  sdimy = rawlocs$sdimy,
+  stringsAsFactors = FALSE
+)
+# If spatial location objects sometimes provide a matrix:
+# If that fails, try as.data.frame(rawlocs@coordinates) and add cell_ID manually.
+
+# Save to CSV
+write.csv(
+  cell_meta,
+  "/projectnb/paxlab/presh/projects/spatial_atac/Data/04_analysis/multiomic/Xenium_488B/giotto_output/xenium_cell_coords.csv",
+  row.names = FALSE
+)
+
+
+expr_cell_ids <- colnames(expr_mat)
+cell_meta <- cell_meta[match(expr_cell_ids, cell_meta$cell_ID), ]
+# Verify:
+all(expr_cell_ids == cell_meta$cell_ID)  # Should be TRUE
 ```
+
+
+
 
 ## PCA + UMAP 
 ```{r}
@@ -119,7 +179,7 @@ plotUMAP(gobject = xenium_crop,
          point_shape = 'no_border',
          save_param = list(save_name = 'sg_umap_leiden'))
 
-
+# save this as 
 
 
 ```

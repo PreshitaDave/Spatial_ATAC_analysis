@@ -60,14 +60,14 @@ def main():
     from calicost.calicost_main import main as calicost_main
     calicost_main(config_file)
 
-    # Report expected output location
+    # Report expected output location (clone_labels.tsv, cnv_*.tsv)
     n_clones = config.get("n_clones", 5)
     sw = config.get("spatial_weight", 1.0)
-    expected_tumorprop = Path(out_dir) / f"clone{n_clones}_rectangle0_w{sw:.1f}" / "tumorprop_spots.tsv"
-    if expected_tumorprop.exists():
-        logger.info(f"Purity estimation complete. Tumor proportion file: {expected_tumorprop}")
+    clone_labels = Path(out_dir) / f"clone{n_clones}_rectangle0_w{sw:.1f}" / "clone_labels.tsv"
+    if clone_labels.exists():
+        logger.info(f"Purity estimation complete. Clone labels: {clone_labels}")
     else:
-        logger.warning(f"Expected tumorprop file not found at: {expected_tumorprop}")
+        logger.warning(f"Expected clone_labels.tsv not found at: {clone_labels}")
         logger.warning("Check CalicoST logs for errors.")
 
 

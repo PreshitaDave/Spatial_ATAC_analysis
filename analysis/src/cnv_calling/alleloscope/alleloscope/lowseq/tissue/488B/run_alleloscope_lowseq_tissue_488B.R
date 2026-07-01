@@ -117,8 +117,6 @@ message(sprintf("  barcodes: %d | SNPs: %d | bins: %d x %d",
 message(sprintf("[%s] Step 2: Createobj + Matrix_filter", Sys.time()))
 
 
-
-
 Obj <- Createobj(
   alt_all          = alt_all,
   ref_all          = ref_all,
@@ -660,10 +658,113 @@ cov_obj <- plot_scATAC_cnv(
   window_step    = 2000000,
   plot_path      = heatmap_path,
   nclust         = 3,
-  var.filter     = FALSE
+  var.filter     = T
 )
 
 saveRDS(cov_obj, file.path(dir_path, "rds", "cov_obj.rds"))
+
+# ───────────────────────────────────────────────────────────────────────────
+# Filter: Remove windows with ≥50% blacklist overlap
+# ───────────────────────────────────────────────────────────────────────────
+message("Step: Filter blacklist regions from raw_counts (based on rownames)")
+
+# Load blacklist file
+BLACKLIST_FILE <- "/projectnb/paxlab/presh/projects/spatial_atac/Data/04_analysis/cnv/CNV_results/epianeufinder/hg38-blacklist.v2.bed"
+
+if (!file.exists(BLACKLIST_FILE)) {
+  stop(paste("Blacklist file not found:", BLACKLIST_FILE))
+}
+
+blacklist_df <- data.table::fread(BLACKLIST_FILE, header=FALSE, 
+                                  col.names=c("chrom", "start", "end", "name"))
+message(paste("Loaded", nrow(blacklist_df), "blacklist regions"))
+
+# Convert blacklist to GRanges
+blacklist_gr <- GenomicRanges::GRanges(
+  seqnames=blacklist_df$chrom,
+  ranges=IRanges::IRanges(start=blacklist_df$start, end=blacklist_df$end),
+  name=blacklist_df$name
+)
+
+# Parse window coordinates from ROWNAMES (format: chr1-start-end)
+message(paste("Parsing", nrow(raw_counts), "windows from raw_counts rownames"))
+
+window_coords <- data.frame(
+  window_name = rownames(raw_counts),
+  stringsAsFactors = FALSE
+)
+
+parts_list <- strsplit(window_coords$window_name, "-")
+window_coords$chr <- sapply(parts_list, function(x) x[1])
+window_coords$start <- as.numeric(sapply(parts_list, function(x) x[2]))
+window_coords$end <- as.numeric(sapply(parts_list, function(x) x[3]))
+
+# Convert windows to GRanges
+windows_gr <- GenomicRanges::GRanges(
+  seqnames=window_coords$chr,
+  ranges=IRanges::IRanges(start=window_coords$start, end=window_coords$end),
+  window_name=window_coords$window_name
+)
+
+# Calculate overlap percentage
+message("Computing overlap percentages with blacklist")
+
+overlap_pct <- numeric(length(windows_gr))
+for (i in seq_along(windows_gr)) {
+  hits <- GenomicRanges::findOverlaps(windows_gr[i], blacklist_gr, type = "any")
+  if (length(hits) == 0) next
+  
+  subject_idx <- S4Vectors::subjectHits(hits)
+  
+  # Repeat window to match number of overlapping blacklist regions
+  overlapping <- GenomicRanges::pintersect(
+    rep(windows_gr[i], length(subject_idx)), 
+    blacklist_gr[subject_idx]
+  )
+  
+  overlap_pct[i] <- sum(GenomicRanges::width(overlapping)) / GenomicRanges::width(windows_gr[i]) * 100
+}
+
+# Keep rows with <50% overlap
+keep_50pct <- overlap_pct < 50
+
+message(paste("Min overlap:", round(min(overlap_pct, na.rm = TRUE), 2), "%"))
+message(paste("Max overlap:", round(max(overlap_pct, na.rm = TRUE), 2), "%"))
+message(paste("Mean overlap:", round(mean(overlap_pct, na.rm = TRUE), 2), "%"))
+message(paste("Windows retained (<50% overlap):", sum(keep_50pct), "/", length(keep_50pct)))
+message(paste("Windows removed (>=50% overlap):", sum(!keep_50pct)))
+
+# Apply filter to raw_counts ROWS
+raw_counts_filt <- raw_counts[keep_50pct, , drop = FALSE]
+
+message(paste("Filtered matrix:", nrow(raw_counts_filt), "windows x", ncol(raw_counts_filt), "cells"))
+message("Blacklist filtering complete")
+
+
+
+
+
+heatmap_path <- file.path(dir_path, "plots", "step6_CNV_coverage_heatmap_filtered.png")
+
+# Remove zero-coverage cells before normalization (0/0 → NaN → rowMedians all NA)
+keep_cells  <- colSums(raw_counts_filt[, cell_type_df$barcode]) > 0
+message(sprintf("  Cells passing coverage filter: %d / %d",
+                sum(keep_cells), length(keep_cells)))
+cell_type_df_filt <- cell_type_df[keep_cells, , drop = FALSE]
+
+
+cov_obj <- plot_scATAC_cnv(
+  raw_mat        = as.matrix(raw_counts_filt[, cell_type_df_filt$barcode]),
+  cell_type      = cell_type_df_filt,
+  normal_lab     = "normal",
+  size           = size_df,
+  window_w       = 10000000,
+  window_step    = 2000000,
+  plot_path      = heatmap_path,
+  nclust         = 3,
+  var.filter     = T
+)
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Summary

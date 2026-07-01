@@ -78,10 +78,25 @@ def main():
     meta         = pd.read_csv(f"{PARSED}/table_meta.csv.gz", sep="\t")
 
     # normal_candidate_barcodes.txt stores integer row indices (not barcode strings)
-    with open(f"{CNA_DIR}/normal_candidate_barcodes.txt") as f:
-        normal_indices = set(int(line.strip()) for line in f if line.strip())
-    # Convert to actual barcodes using clone_labels row order
-    normal_barcodes = set(clone_labels.iloc[sorted(normal_indices)]["BARCODES"].tolist())
+    _normal_txt = f"{CNA_DIR}/normal_candidate_barcodes.txt"
+    if os.path.exists(_normal_txt):
+        with open(_normal_txt) as f:
+            normal_indices = set(int(line.strip()) for line in f if line.strip())
+        # Convert to actual barcodes using clone_labels row order
+        normal_barcodes = set(clone_labels.iloc[sorted(normal_indices)]["BARCODES"].tolist())
+        print(f"  Loaded {len(normal_barcodes)} normal barcodes from normal_candidate_barcodes.txt")
+    else:
+        # Fall back to the normalidx_file used as CNA input (actual barcode strings) —
+        # tissues that supply normalidx_file directly (e.g. deepseq_488B) skip CalicoST's
+        # own normal-candidate detection, so this file is never written.
+        _normalidx = f"{PROJECT_ROOT}/analysis/binsize_comparison/normal_barcodes/{tissue}_normal_barcodes.csv"
+        if os.path.exists(_normalidx):
+            with open(_normalidx) as f:
+                normal_barcodes = set(line.strip() for line in f if line.strip())
+            print(f"  normal_candidate_barcodes.txt not found — using normalidx_file: {len(normal_barcodes)} barcodes")
+        else:
+            normal_barcodes = set()
+            print(f"  WARNING: no normal barcode source found — is_normal will be empty")
 
     bd = dict(np.load(f"{CNA_DIR}/binned_data.npz",           allow_pickle=True))
     rd = dict(np.load(f"{CNA_DIR}/rdrbaf_final_nstates7_smp.npz", allow_pickle=True))

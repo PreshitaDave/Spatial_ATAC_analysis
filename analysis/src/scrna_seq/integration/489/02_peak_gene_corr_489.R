@@ -88,35 +88,43 @@ if (length(spatial_cols) < 2) {
   meta$y_um <- meta[[spatial_cols[2]]]
 }
 
-# ── Compute per-cell Pearson: GeneScore vs GeneIntegration ──────────────────
-# For correlation, we work at the cell level (each ATAC cell is a "pseudo-spot")
-cat("Computing per-cell Pearson correlation (GeneScore vs imputed scRNA)...\n")
-n_cells <- ncol(gs_mat)
-per_cell_r <- numeric(n_cells)
-for (i in seq_len(n_cells)) {
-  gs_i <- as.numeric(gs_mat[, i])
-  gi_i <- as.numeric(gi_mat[, i])
-  if (var(gs_i) > 0 && var(gi_i) > 0) {
-    per_cell_r[i] <- cor(gs_i, gi_i, method = "pearson")
-  } else {
-    per_cell_r[i] <- NA
-  }
+# ── Compute per-gene Pearson: GeneScore vs GeneIntegration, across units ───
+# Correlate across CELLS (or spatial BINS), one r per gene — matches the
+# gene_loss_evaluation.ipynb Xenium-baseline methodology (per-gene, across
+# spots/cells). Correlating across GENES within one cell/bin (the previous
+# approach) is dominated by absolute expression-magnitude differences between
+# GeneScore and imputed-expression units and is not comparable to the
+# Xenium baseline.
+pergene_pearson <- function(gs_units, gi_units) {
+  # gs_units, gi_units: genes x units matrices, same gene/unit order
+  n_units <- ncol(gs_units)
+  if (n_units < 3) return(rep(NA_real_, nrow(gs_units)))
+  gs_m <- as.matrix(gs_units)
+  gi_m <- as.matrix(gi_units)
+  vapply(seq_len(nrow(gs_m)), function(i) {
+    x <- gs_m[i, ]; y <- gi_m[i, ]
+    if (var(x) > 0 && var(y) > 0) cor(x, y, method = "pearson") else NA_real_
+  }, numeric(1))
 }
-meta$pearson_r <- per_cell_r
-cat("Native resolution (per ATAC cell):\n")
-cat("  Median Pearson:", round(median(per_cell_r, na.rm=TRUE), 4), "\n")
-cat("  Mean Pearson:  ", round(mean(per_cell_r, na.rm=TRUE), 4), "\n")
+
+cat("Computing per-gene Pearson correlation across cells (native resolution)...\n")
+n_cells <- ncol(gs_mat)
+r_gene_native <- pergene_pearson(gs_mat, gi_mat)
+cat("Native resolution (per gene, across ATAC cells):\n")
+cat("  Median Pearson:", round(median(r_gene_native, na.rm=TRUE), 4), "\n")
+cat("  Mean Pearson:  ", round(mean(r_gene_native, na.rm=TRUE), 4), "\n")
 cat("  Xenium baseline: 0.017\n")
 
 # ── Resolution sweep ──────────────────────────────────────────────────────────
+# Aggregate cells into spatial bins, then compute per-gene Pearson across bins.
 bin_sizes <- c(0, 25, 50, 100, 200, 400)   # µm
 sweep_results <- data.frame(bin_size_um = integer(), median_pearson = numeric(),
                              mean_pearson = numeric(), n_bins = integer())
 
 for (bin_size in bin_sizes) {
   if (bin_size == 0) {
-    # Native: per-cell
-    r_vals <- per_cell_r
+    # Native: per-gene across cells
+    r_vals <- r_gene_native
     n_b <- n_cells
   } else {
     # Aggregate into spatial grid bins
@@ -124,17 +132,16 @@ for (bin_size in bin_sizes) {
     meta$bin_y <- floor(meta$y_um / bin_size)
     meta$bin_id <- paste(meta$bin_x, meta$bin_y, sep="_")
     bins <- unique(meta$bin_id[!is.na(meta$x_um)])
-    r_vals <- numeric(length(bins))
+    gs_binned <- matrix(NA_real_, nrow = nrow(gs_mat), ncol = length(bins))
+    gi_binned <- matrix(NA_real_, nrow = nrow(gi_mat), ncol = length(bins))
     for (b_idx in seq_along(bins)) {
       b <- bins[b_idx]
       cells_in_bin <- which(meta$bin_id == b & !is.na(meta$x_um))
-      if (length(cells_in_bin) < 2) { r_vals[b_idx] <- NA; next }
-      gs_b <- rowMeans(as.matrix(gs_mat[, cells_in_bin, drop=FALSE]))
-      gi_b <- rowMeans(as.matrix(gi_mat[, cells_in_bin, drop=FALSE]))
-      if (var(gs_b) > 0 && var(gi_b) > 0)
-        r_vals[b_idx] <- cor(gs_b, gi_b, method = "pearson")
-      else r_vals[b_idx] <- NA
+      if (length(cells_in_bin) < 1) next
+      gs_binned[, b_idx] <- rowMeans(as.matrix(gs_mat[, cells_in_bin, drop=FALSE]))
+      gi_binned[, b_idx] <- rowMeans(as.matrix(gi_mat[, cells_in_bin, drop=FALSE]))
     }
+    r_vals <- pergene_pearson(gs_binned, gi_binned)
     n_b <- length(bins)
   }
   sweep_results <- rbind(sweep_results, data.frame(
@@ -143,7 +150,7 @@ for (bin_size in bin_sizes) {
     mean_pearson   = mean(r_vals, na.rm=TRUE),
     n_bins         = n_b
   ))
-  cat(sprintf("  %3d µm bins: median Pearson = %.4f  (n=%d)\n",
+  cat(sprintf("  %3d µm bins: median Pearson = %.4f  (n=%d bins)\n",
               bin_size, median(r_vals, na.rm=TRUE), n_b))
 }
 

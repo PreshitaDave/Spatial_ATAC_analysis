@@ -15,6 +15,8 @@ analysis/binsize_comparison/archr_projects/
 analysis/src/alignment/mosaicfield_outputs/
 analysis/src/alignment/archive/mosaicfield_outputs/
 analysis/src/alignment/MOSAICField/
+analysis/src/alignment/run1_workspace/mosaicfield_outputs/
+analysis/src/alignment/run1_workspace/MOSAICField
 analysis/binsize_comparison/distribution_modeling/*.pdf
 **/.DS_Store
 **/.virtual_documents/

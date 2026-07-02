@@ -1,0 +1,116 @@
+=====================================================================
+DISK USAGE BREAKDOWN — /projectnb/paxlab/presh (user: preshita)
+Generated: 2026-07-01
+=====================================================================
+
+HEADLINE FINDING
+-----------------------------------------------------------------------
+Your reported 5.7 TB usage was dominated by ~3.8 TB of GARBAGE inside
+spatial_atac's .git directory: 184 leftover "tmp_pack_*" files from one
+or more interrupted git operations (a killed/failed push, fetch, or gc
+that never cleaned up after itself). These were NOT part of your real
+git history — `git count-objects -v` explicitly flagged them as
+"garbage" — and were safe to delete. They have been removed.
+
+  Before: /projectnb/paxlab/presh/projects/spatial_atac/.git = 3.8 TB
+  After:  /projectnb/paxlab/presh/projects/spatial_atac/.git = 19 GB
+  Real, legitimate packed git history: ~8.5 GB (unaffected, verified
+  intact via `git status`, `git log`, `git fsck`)
+
+This single cleanup recovered ~3.7 TB. Your actual data footprint is
+much smaller than 5.7 TB once this garbage is excluded.
+
+=====================================================================
+TOP-LEVEL BREAKDOWN OF /projectnb/paxlab/presh (sorted, decreasing)
+=====================================================================
+
+  1.1 T   projects/                 (= spatial_atac, only project you have)
+   73 G   software/                 (cloned tools/packages, see below)
+   23 G   env/                      (conda environments)
+  4.9 G   Rlibs/                    (R package library)
+  3.1 G   conda_envs/               (additional conda environments)
+  ---
+  ~1.2 T  TOTAL (post git-cleanup)
+
+=====================================================================
+projects/spatial_atac BREAKDOWN (sorted, decreasing)
+=====================================================================
+
+  919 G   Data/                     (see breakdown below)
+  137 G   analysis/                 (see breakdown below)
+   19 G   .git/                     (cleaned; was 3.8 T, now legitimate history only)
+   42 M   ArchRLogs/
+   71 M   documentation/
+  (rest negligible: .github, .vscode, tmp, .claude, logs)
+
+--- Data/ subdirectory breakdown ---
+  566 G   01_inputs/                (raw BAMs, arrow files, fragments, images)
+    435 G   01_inputs/bam/          (the 4 canonical tissue BAMs + merged deepseq_cb16 BAM)
+     96 G   01_inputs/arrow/        (ArchR arrow files)
+     21 G   01_inputs/fragments/
+    9.5 G   01_inputs/giotto/
+    6.6 G   01_inputs/images/
+  258 G   04_analysis/              (CNV/multiomic/monopogen analysis outputs)
+    104 G   04_analysis/multiomic/
+    102 G   04_analysis/cnv/
+     52 G   04_analysis/monopogen_variant_calling/
+   70 G   01_outputs/               (ArchR project objects, multiple binsize variants)
+   26 G   02_references/            (genome reference files)
+
+--- analysis/ subdirectory breakdown ---
+   99 G   binsize_comparison/       (archr_projects/ — ArchR variants for binsize testing;
+                                     already gitignored, but still real disk usage)
+   37 G   src/                     (includes ~25G of mosaicfield_outputs, scripts)
+  2.2 G   plots/
+   16 M   qsub_logs/
+
+--- software/ breakdown (sorted, decreasing) ---
+   46 G   Rcistarget/               (SCENIC+ motif/reference databases)
+   21 G   ATX_epigenomics/          (AtlasXomics reference repo)
+  1.5 G   paste3_input/
+  1.4 G   Alleloscope/
+  1.4 G   MOSAICField/              (the actual package used by mosaic_run2-2.ipynb)
+  928 M   paste3/
+  434 M   external/
+  416 M   CalicoST/
+  218 M   Monopogen/
+   72 M   pycisTopic/
+   60 M   scenicplus/
+   54 M   startle/
+   49 M   bcftools_1.8/
+   34 M   vartrix-1.1.22/
+   30 M   CopyscAT/
+   18 M   RIDDLER/
+   15 M   Mallet-202108/
+  6.2 M   pycistarget/
+
+=====================================================================
+WHAT'S ACTUALLY LARGE AND LEGITIMATE (not cleanup candidates without
+further discussion — these are real inputs/outputs you likely still need)
+=====================================================================
+  - Data/01_inputs/bam/ (435 G): the 4 canonical raw tissue BAMs plus the
+    verified deepseq_cb16_merged.bam. Already deduplicated earlier this
+    session (removed ~268 G of redundant/broken BAM copies).
+  - Data/01_inputs/arrow/ (96 G): ArchR arrow files, required for all
+    downstream ArchR analysis.
+  - analysis/binsize_comparison/archr_projects (~98-99 G): ArchR project
+    variants for the binsize sweep — gitignored (not tracked in git) but
+    still occupies real disk; worth revisiting if the binsize comparison
+    work is finished and a winning bin size has been chosen.
+  - software/Rcistarget (46 G) and software/ATX_epigenomics (21 G):
+    reference databases/repos, likely one-time downloads — worth checking
+    if still needed for active work.
+
+=====================================================================
+RECOMMENDED NEXT STEPS (in order of impact)
+=====================================================================
+  1. DONE: removed 3.8 TB of git garbage (tmp_pack_* files).
+  2. Consider whether analysis/binsize_comparison/archr_projects (~99 G)
+     is still needed now that a bin size appears to have been chosen
+     (5000bp_non_binarize is referenced throughout later pipeline stages).
+  3. Consider whether software/Rcistarget (46 G) and software/ATX_epigenomics
+     (21 G) are still actively used or could be re-downloaded if needed later.
+  4. Re-run `du -sh /projectnb/paxlab/presh` after any further cleanup to
+     confirm updated totals (BU SCC quota reporting may take time to refresh
+     after the git cleanup).
+=====================================================================

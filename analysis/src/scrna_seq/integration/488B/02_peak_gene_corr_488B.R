@@ -39,18 +39,32 @@ proj <- loadArchRProject(ARCHR_INT, showLogo = FALSE)
 cat("Extracting GeneScoreMatrix...\n")
 gs  <- getMatrixFromProject(proj, useMatrix = "GeneScoreMatrix")
 gs_mat <- assay(gs)   # genes × cells
+# ArchR stores gene names in rowData, not rownames
+if (!is.null(rowData(gs)$name))
+  rownames(gs_mat) <- make.unique(as.character(rowData(gs)$name))
 gene_names_gs <- rownames(gs_mat)
+cat("GeneScoreMatrix:", nrow(gs_mat), "genes ×", ncol(gs_mat), "cells\n")
 
-cat("Extracting GeneIntegrationMatrix (imputed scRNA per ATAC cell)...\n")
-gi  <- getMatrixFromProject(proj, useMatrix = "GeneIntegrationMatrix")
-gi_mat <- assay(gi)   # genes × cells
-gene_names_gi <- rownames(gi_mat)
+cat("Loading GeneIntegrationMatrix from exported MTX (not in Arrow files)...\n")
+gi_mat   <- readMM(file.path(OBJ_DIR, "archr_488B_GeneIntegrationMatrix.mtx"))
+gi_genes <- read.csv(file.path(OBJ_DIR, "archr_488B_gene_names.csv"), header=TRUE)[,1]
+gi_cells <- read.csv(file.path(OBJ_DIR, "archr_488B_cell_names.csv"), header=TRUE)[,1]
+rownames(gi_mat) <- gi_genes
+colnames(gi_mat) <- gi_cells
+gi_mat <- as(gi_mat, "CsparseMatrix")
+cat("GeneIntegrationMatrix:", nrow(gi_mat), "genes ×", ncol(gi_mat), "cells\n")
 
 # Shared genes
-shared_genes <- intersect(gene_names_gs, gene_names_gi)
+shared_genes <- intersect(gene_names_gs, rownames(gi_mat))
 cat("Shared genes between GeneScore and GeneIntegration:", length(shared_genes), "\n")
 gs_mat <- gs_mat[shared_genes, ]
 gi_mat <- gi_mat[shared_genes, ]
+
+# Align cells: keep only cells present in both matrices
+common_cells <- intersect(colnames(gs_mat), colnames(gi_mat))
+cat("Common cells:", length(common_cells), "\n")
+gs_mat <- gs_mat[, common_cells]
+gi_mat <- gi_mat[, common_cells]
 
 # ── Spatial coordinates per ATAC cell ────────────────────────────────────────
 # ArchR stores spatial coords in cellColData if added; otherwise from nonlinear_aligned h5ad
@@ -61,50 +75,67 @@ cat("Potential spatial columns:", paste(spatial_cols, collapse=", "), "\n")
 # If spatial coords are not in cellColData, use the nonlinear-aligned h5ad
 if (length(spatial_cols) < 2) {
   cat("Loading spatial coordinates from nonlinear aligned h5ad...\n")
-  library(anndata)
-  atac_h5ad <- read_h5ad("/projectnb/paxlab/presh/projects/spatial_atac/analysis/src/alignment/mosaicfield_outputs/atac_nonlinear_aligned.h5ad")
-  sp_coords <- atac_h5ad$obsm[["spatial"]]
-  rownames(sp_coords) <- atac_h5ad$obs_names
-  colnames(sp_coords) <- c("x_um", "y_um")
-  # Match to ArchR cell names (strip sample prefix if needed)
-  cell_bare <- sub(".*#", "", proj$cellNames)
-  sp_coords_matched <- sp_coords[cell_bare, , drop = FALSE]
-  meta$x_um <- sp_coords_matched[, 1]
-  meta$y_um <- sp_coords_matched[, 2]
+  spatial_load_ok <- tryCatch({
+    library(anndata)
+    atac_h5ad <- read_h5ad("/projectnb/paxlab/presh/projects/spatial_atac/analysis/src/alignment/mosaicfield_outputs/atac_nonlinear_aligned.h5ad")
+    sp_coords <- atac_h5ad$obsm[["spatial"]]
+    rownames(sp_coords) <- atac_h5ad$obs_names
+    colnames(sp_coords) <- c("x_um", "y_um")
+    # Match to ArchR cell names (strip sample prefix if needed)
+    cell_bare <- sub(".*#", "", proj$cellNames)
+    sp_coords_matched <- sp_coords[cell_bare, , drop = FALSE]
+    meta$x_um <<- sp_coords_matched[, 1]
+    meta$y_um <<- sp_coords_matched[, 2]
+    TRUE
+  }, error = function(e) {
+    cat("  WARNING: failed to load spatial coordinates from h5ad (", conditionMessage(e), ")\n")
+    cat("  Native-resolution correlation is unaffected; resolution sweep (bin_size > 0) will be skipped.\n")
+    meta$x_um <<- NA_real_
+    meta$y_um <<- NA_real_
+    FALSE
+  })
 } else {
   meta$x_um <- meta[[spatial_cols[1]]]
   meta$y_um <- meta[[spatial_cols[2]]]
 }
 
-# ── Compute per-cell Pearson: GeneScore vs GeneIntegration ──────────────────
-# For correlation, we work at the cell level (each ATAC cell is a "pseudo-spot")
-cat("Computing per-cell Pearson correlation (GeneScore vs imputed scRNA)...\n")
-n_cells <- ncol(gs_mat)
-per_cell_r <- numeric(n_cells)
-for (i in seq_len(n_cells)) {
-  gs_i <- as.numeric(gs_mat[, i])
-  gi_i <- as.numeric(gi_mat[, i])
-  if (var(gs_i) > 0 && var(gi_i) > 0) {
-    per_cell_r[i] <- cor(gs_i, gi_i, method = "pearson")
-  } else {
-    per_cell_r[i] <- NA
-  }
+# ── Compute per-gene Pearson: GeneScore vs GeneIntegration, across units ───
+# Correlate across CELLS (or spatial BINS), one r per gene — matches the
+# gene_loss_evaluation.ipynb Xenium-baseline methodology (per-gene, across
+# spots/cells). Correlating across GENES within one cell/bin (the previous
+# approach) is dominated by absolute expression-magnitude differences between
+# GeneScore and imputed-expression units and is not comparable to the
+# Xenium baseline.
+pergene_pearson <- function(gs_units, gi_units) {
+  # gs_units, gi_units: genes x units matrices, same gene/unit order
+  n_units <- ncol(gs_units)
+  if (n_units < 3) return(rep(NA_real_, nrow(gs_units)))
+  gs_m <- as.matrix(gs_units)
+  gi_m <- as.matrix(gi_units)
+  vapply(seq_len(nrow(gs_m)), function(i) {
+    x <- gs_m[i, ]; y <- gi_m[i, ]
+    if (var(x) > 0 && var(y) > 0) cor(x, y, method = "pearson") else NA_real_
+  }, numeric(1))
 }
-meta$pearson_r <- per_cell_r
-cat("Native resolution (per ATAC cell):\n")
-cat("  Median Pearson:", round(median(per_cell_r, na.rm=TRUE), 4), "\n")
-cat("  Mean Pearson:  ", round(mean(per_cell_r, na.rm=TRUE), 4), "\n")
+
+cat("Computing per-gene Pearson correlation across cells (native resolution)...\n")
+n_cells <- ncol(gs_mat)
+r_gene_native <- pergene_pearson(gs_mat, gi_mat)
+cat("Native resolution (per gene, across ATAC cells):\n")
+cat("  Median Pearson:", round(median(r_gene_native, na.rm=TRUE), 4), "\n")
+cat("  Mean Pearson:  ", round(mean(r_gene_native, na.rm=TRUE), 4), "\n")
 cat("  Xenium baseline: 0.017\n")
 
 # ── Resolution sweep ──────────────────────────────────────────────────────────
+# Aggregate cells into spatial bins, then compute per-gene Pearson across bins.
 bin_sizes <- c(0, 25, 50, 100, 200, 400)   # µm
 sweep_results <- data.frame(bin_size_um = integer(), median_pearson = numeric(),
                              mean_pearson = numeric(), n_bins = integer())
 
 for (bin_size in bin_sizes) {
   if (bin_size == 0) {
-    # Native: per-cell
-    r_vals <- per_cell_r
+    # Native: per-gene across cells
+    r_vals <- r_gene_native
     n_b <- n_cells
   } else {
     # Aggregate into spatial grid bins
@@ -112,17 +143,16 @@ for (bin_size in bin_sizes) {
     meta$bin_y <- floor(meta$y_um / bin_size)
     meta$bin_id <- paste(meta$bin_x, meta$bin_y, sep="_")
     bins <- unique(meta$bin_id[!is.na(meta$x_um)])
-    r_vals <- numeric(length(bins))
+    gs_binned <- matrix(NA_real_, nrow = nrow(gs_mat), ncol = length(bins))
+    gi_binned <- matrix(NA_real_, nrow = nrow(gi_mat), ncol = length(bins))
     for (b_idx in seq_along(bins)) {
       b <- bins[b_idx]
       cells_in_bin <- which(meta$bin_id == b & !is.na(meta$x_um))
-      if (length(cells_in_bin) < 2) { r_vals[b_idx] <- NA; next }
-      gs_b <- rowMeans(as.matrix(gs_mat[, cells_in_bin, drop=FALSE]))
-      gi_b <- rowMeans(as.matrix(gi_mat[, cells_in_bin, drop=FALSE]))
-      if (var(gs_b) > 0 && var(gi_b) > 0)
-        r_vals[b_idx] <- cor(gs_b, gi_b, method = "pearson")
-      else r_vals[b_idx] <- NA
+      if (length(cells_in_bin) < 1) next
+      gs_binned[, b_idx] <- rowMeans(as.matrix(gs_mat[, cells_in_bin, drop=FALSE]))
+      gi_binned[, b_idx] <- rowMeans(as.matrix(gi_mat[, cells_in_bin, drop=FALSE]))
     }
+    r_vals <- pergene_pearson(gs_binned, gi_binned)
     n_b <- length(bins)
   }
   sweep_results <- rbind(sweep_results, data.frame(
@@ -131,7 +161,7 @@ for (bin_size in bin_sizes) {
     mean_pearson   = mean(r_vals, na.rm=TRUE),
     n_bins         = n_b
   ))
-  cat(sprintf("  %3d µm bins: median Pearson = %.4f  (n=%d)\n",
+  cat(sprintf("  %3d µm bins: median Pearson = %.4f  (n=%d bins)\n",
               bin_size, median(r_vals, na.rm=TRUE), n_b))
 }
 

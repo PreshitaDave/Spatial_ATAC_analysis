@@ -27,7 +27,12 @@ export PATH="/projectnb/paxlab/presh/env/calicost_env/bin:/projectnb/paxlab/pres
 PROJECT_ROOT="/projectnb/paxlab/presh/projects/spatial_atac"
 BAM_CB16_DIR="${PROJECT_ROOT}/Data/04_analysis/monopogen_variant_calling/deepseq/Bam_cb16"
 ALLELE_OUTDIR="${PROJECT_ROOT}/Data/04_analysis/cnv/numbat/inputs/deepseq_488B/alleles"
-MERGED_BAM="${PROJECT_ROOT}/Data/04_analysis/cnv/numbat/inputs/deepseq_488B/bam/deepseq_488B_cb16_merged.bam"
+# Merged BAM lives in Data/01_inputs/bam (canonical BAM location) and covers both
+# deepseq tissues (488B + 489); tissue separation happens via --barcodes below.
+# Bam_cb16 (per-chr source) was deleted after verifying the merge was lossless
+# (read counts matched exactly) — if MERGED_BAM is ever missing, it must be
+# rebuilt from a fresh Bam_cb16 export rather than via the block below.
+MERGED_BAM="${PROJECT_ROOT}/Data/01_inputs/bam/deepseq_cb16_merged.bam"
 BARCODES="${PROJECT_ROOT}/Data/01_inputs/barcodes/tissue_barcodes/deepseq_488B/deepseq_488B.barcodes.tsv"
 ALLELE_DF="${ALLELE_OUTDIR}/deepseq_488B_atac_allele_counts.tsv.gz"
 PILEUP_PHASE="/projectnb/paxlab/presh/projects/spatial_atac/Data/04_analysis/cnv/numbat/numbat_repo/inst/bin/pileup_and_phase.R"

@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """
 Export all data needed for R loss-function comparison.
-Computes affine-only mappings (baseline) + nonlinear mappings.
+Computes the affine-only mapping (baseline, unique to this script -- no equivalent
+exists elsewhere) and reuses the nonlinear-stage mapping already computed and saved
+by mosaic_run2-2.ipynb's own STEP 4b (xenium_to_atac_mapping_voronoi.csv), instead of
+recomputing a duplicate cKDTree query for the nonlinear stage.
 Run from the mosaic_field directory.
 """
 import os, numpy as np, pandas as pd, anndata as ad, re
@@ -59,11 +62,28 @@ def compute_mappings(atac_coords, xenium_coords, atac_names, xenium_names,
     print(f"  Voronoi (+{soft_cutoff}um): {len(vor_map):,} total, {n_conf:,} confident")
     return nn_map, vor_map
 
-print("\n--- Affine-only alignment (baseline) ---")
+print("\n--- Affine-only alignment (baseline; no equivalent computed elsewhere) ---")
 aff_nn, aff_vor = compute_mappings(affine_um, xenium_um, atac_names, xenium_names)
 
-print("\n--- Nonlinear alignment ---")
-nl_nn, nl_vor = compute_mappings(warped_um, xenium_um, atac_names, xenium_names)
+print("\n--- Nonlinear alignment (reusing mosaic_run2-2.ipynb STEP 4b output) ---")
+_voronoi_csv = os.path.join(outdir, "xenium_to_atac_mapping_voronoi.csv")
+if not os.path.exists(_voronoi_csv):
+    raise FileNotFoundError(
+        f"{_voronoi_csv} not found -- run mosaic_run2-2.ipynb's STEP 4b first "
+        f"(this script no longer recomputes the nonlinear-stage mapping itself)."
+    )
+_nl_map = pd.read_csv(_voronoi_csv)
+CUTOFF, SOFT_CUTOFF = 20.0, 30.0
+nl_nn = _nl_map.copy()
+nl_nn["assigned"] = nl_nn["distance_um"] <= CUTOFF
+nl_nn = nl_nn[["xenium_cell", "xenium_x_um", "xenium_y_um", "atac_spot",
+               "atac_spot_idx", "distance_um", "assigned"]]
+nl_vor = _nl_map[["xenium_cell", "xenium_x_um", "xenium_y_um", "atac_spot",
+                  "atac_spot_idx", "distance_um", "distant"]].copy()
+n_nn = nl_nn["assigned"].sum()
+n_conf = (~nl_vor["distant"]).sum()
+print(f"  NN ({CUTOFF}um): {n_nn:,} assigned ({100*n_nn/len(nl_nn):.1f}%)")
+print(f"  Voronoi (+{SOFT_CUTOFF}um): {len(nl_vor):,} total, {n_conf:,} confident")
 
 # --- Save 4 mapping CSVs ---
 aff_nn.to_csv(os.path.join(rdir, 'mapping_affine_nn.csv'), index=False)

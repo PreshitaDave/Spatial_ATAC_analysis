@@ -2,6 +2,14 @@
 
 This guide explains how to create h5ad objects in the same format as the MOSAICField input data.
 
+## Data Formats
+
+**ATAC data** can be stored as either:
+- **TileMatrix**: Fixed-width genomic bins (e.g., 5kb tiles) — `chr1:10000-15000`
+- **PeakMatrix**: Variable-width ATAC peaks — caller-defined peaks
+
+MOSAICField accepts both. The example data uses **TileMatrix (5kb bins)**. If your ArchR project uses PeakMatrix, change the script accordingly.
+
 ## ATAC from ArchR
 
 ### Step 1: Export from ArchR (R)
@@ -16,13 +24,13 @@ Rscript create_h5ad_from_ArchR.R
 ```
 
 This exports:
-- `atac_peak_matrix.mtx` — peak accessibility matrix (peaks × cells, Matrix Market format)
-- `atac_peak_names.csv` — peak identifiers (chr:start-end format, or your naming)
+- `atac_peak_matrix.mtx` — tile/peak accessibility matrix (tiles/peaks × cells, Matrix Market format)
+- `atac_peak_names.csv` — tile/peak identifiers (chr:start-end format for tiles, or peak names)
 - `atac_cell_names.csv` — cell barcodes
 - `atac_coords.csv` — spatial coordinates (x, y or xcor, ycor)
 - `atac_obs.csv` — per-cell metadata (QC metrics, cluster assignments, etc.)
-- `atac_var.csv` — per-peak statistics (mean, variance, dispersions)
-- `atac_peak_coords.csv` — genomic coordinates parsed from peak names
+- `atac_var.csv` — per-tile/peak statistics (mean, variance, dispersions)
+- `atac_peak_coords.csv` — genomic coordinates parsed from tile/peak names
 
 ### Step 2: Build h5ad (Python)
 
@@ -106,7 +114,7 @@ Both ATAC and Xenium h5ad objects follow this structure:
 | **obsm['spatial']** | Spatial coordinates in micrometers (µm) | obs × 2 |
 | **uns** | Unstructured metadata (optional: peak genomics, alignment params) | dict |
 
-### Example: MOSAICField ATAC Format
+### Example: MOSAICField ATAC Format (TileMatrix)
 
 ```python
 import anndata as ad
@@ -123,13 +131,34 @@ print(adata)
 
 # Access data
 coords = adata.obsm['spatial']  # (11640, 2) in micrometers
-peaks = adata.var_names          # 2000 peak IDs
-cells = adata.obs_names           # 11640 cell barcodes
+tiles = adata.var_names           # 2000 tile IDs (e.g., chr1:10000-15000)
+cells = adata.obs_names            # 11640 cell barcodes
 ```
+
+Note: Rows are ATAC spots/cells, columns are genomic tiles (5kb bins) or peaks depending on your ArchR matrix type.
 
 ## Tips
 
-1. **Peak naming**: MOSAICField expects genomic bins in format `chr:start-end` (e.g., `chr1:10000-15000`). Adjust parsing in the Python script if your naming differs.
+1. **Which matrix to use?** Check your ArchR project:
+   ```R
+   library(ArchR)
+   proj <- loadArchRProject("path/to/project")
+   # List available matrices:
+   getAvailableMatrices(proj)
+   # Will show something like: "PeakMatrix" or "TileMatrix"
+   ```
+   Then edit `create_h5ad_from_ArchR.R` line 27 to match:
+   ```R
+   # For non-binarized (continuous) values:
+   tile_mat <- getMatrixFromProject(proj, useMatrix = "TileMatrix", binarize = FALSE)
+   
+   # Or for binarized (0/1) values:
+   tile_mat <- getMatrixFromProject(proj, useMatrix = "TileMatrix", binarize = TRUE)
+   ```
+   
+   If you get error *"Sparse Matrix in Arrow is Binarized!"*, add `binarize = FALSE` to read the underlying continuous values.
+
+2. **Tile/Peak naming**: MOSAICField expects genomic bins in format `chr:start-end` (e.g., `chr1:10000-15000`). Adjust parsing in the Python script if your naming differs.
 
 2. **Spatial coordinates**: Must be in **micrometers (µm)**, not pixels. ArchR/Giotto typically store original slide coordinates.
 

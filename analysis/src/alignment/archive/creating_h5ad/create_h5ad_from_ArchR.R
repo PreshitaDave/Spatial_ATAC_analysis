@@ -4,12 +4,10 @@
 
 library(ArchR)
 library(data.table)
-library(rhdf5)
-
 
 # --- Parameters ---
 archR_project_path <- "/projectnb/paxlab/presh/projects/spatial_atac/Data/01_outputs/archR_objects/deepseq_488B/deepseq_488B_archR_project_final"  # CHANGE THIS
-output_dir <- "/projectnb/paxlab/presh/projects/spatial_atac/Data/04_analysis/multiomic/alignment/atac_export"# CHANGE THIS
+output_dir <- "/projectnb/paxlab/presh/projects/spatial_atac/Data/04_analysis/multiomic/alignment/atac_export" # CHANGE THIS
 dir.create(output_dir, showWarnings = FALSE)
 
 set.seed(42)
@@ -19,38 +17,30 @@ proj <- loadArchRProject(archR_project_path)
 cat(sprintf("Loaded ArchR project: %d cells\n", ncol(proj)))
 
 # ==============================================================================
-# 1. Get Tile matrix (cells × tiles)
+# 1. Get peak accessibility matrix (cells × peaks)
 # ==============================================================================
 
-cat("\nExtracting Tile matrix...\n")
+cat("\nExtracting peak matrix...\n")
 
-getMatrixFromArrow(
-  ArrowFile = '/projectnb/paxlab/presh/projects/spatial_atac/Data/01_outputs/archR_objects/deepseq_488B/deepseq_488B_archR_project_final/ArrowFiles',
-  useMatrix = "TileMatrix",
-  useSeqnames = NULL,
-  excludeChr = NULL,
-  cellNames = NULL,
-  ArchRProj = NULL,
-  verbose = TRUE,
-  binarize = FALSE,
-  logFile = createLogFile("getMatrixFromArrow")
-)
+# Get tile accessibility (fixed-width genomic bins, e.g., 5kb tiles)
+# If your ArchR project uses PeakMatrix instead, change "TileMatrix" to "PeakMatrix"
+# Set binarize = FALSE to get continuous (non-binarized) values
+tile_mat <- getMatrixFromProject(proj, useMatrix = "TileMatrix", binarize = FALSE)
+cat(sprintf("Tile matrix: %d cells × %d tiles\n", nrow(tile_mat), ncol(tile_mat)))
 
-# Get tile matrix 
-tile_mat <- getMatrixFromProject(proj, useMatrix = "TileMatrix", binarize = T)
-cat(sprintf("tile matrix: %d cells × %d tiles\n", nrow(tile_mat), ncol(tile_mat)))
+peak_mat <- tile_mat  # Use same variable name for rest of script
 
 # Convert to sparse matrix if not already
-if (!class(tile_mat)[1] %in% c("dgCMatrix", "dgTMatrix")) {
-  tile_mat <- Matrix::Matrix(tile_mat, sparse = TRUE)
+if (!class(peak_mat)[1] %in% c("dgCMatrix", "dgTMatrix")) {
+  peak_mat <- Matrix::Matrix(peak_mat, sparse = TRUE)
 }
 
-# Get tile names (seqnames:start-end)
-tile_names <- rownames(tile_mat)
-cat(sprintf("tile names format: %s\n", tile_names[1]))
+# Get peak names (seqnames:start-end)
+peak_names <- rownames(peak_mat)
+cat(sprintf("Peak names format: %s\n", peak_names[1]))
 
 # Get cell IDs
-cell_ids <- colnames(tile_mat)
+cell_ids <- colnames(peak_mat)
 cat(sprintf("Example cell IDs: %s, %s\n", cell_ids[1], cell_ids[2]))
 
 # ==============================================================================
@@ -97,7 +87,7 @@ setcolorder(obs_df, "cell_id")
 
 # Select QC columns (adjust to your metadata)
 qc_cols <- intersect(colnames(obs_df),
-                     c("nFrags", "TSSEnrichment", "ReadsIntiles",
+                     c("nFrags", "TSSEnrichment", "ReadsInPeaks",
                        "nMito", "log10_frags", "tsse", "cluster",
                        "sample", "condition"))
 if (length(qc_cols) > 0) {
@@ -109,25 +99,25 @@ if (length(qc_cols) > 0) {
 cat(sprintf("Obs columns: %s\n", paste(colnames(obs_df), collapse = ", ")))
 
 # ==============================================================================
-# 4. Get var (per-tile statistics)
+# 4. Get var (per-peak statistics)
 # ==============================================================================
 
-cat("\nExtracting per-tile statistics...\n")
+cat("\nExtracting per-peak statistics...\n")
 
-# tile statistics: mean, variance, etc.
-tile_means <- Matrix::rowMeans(tile_mat)
-tile_vars <- Matrix::rowSums((tile_mat - tile_means)^2) / (ncol(tile_mat) - 1)
+# Peak statistics: mean, variance, etc.
+peak_means <- Matrix::rowMeans(peak_mat)
+peak_vars <- Matrix::rowSums((peak_mat - peak_means)^2) / (ncol(peak_mat) - 1)
 
 var_df <- data.table(
-  tile = tile_names,
-  mean = tile_means,
-  variance = tile_vars,
-  dispersions = tile_vars / (tile_means + 1),  # rough dispersion metric
-  tile_idx = seq_len(nrow(tile_mat))
+  peak = peak_names,
+  mean = peak_means,
+  variance = peak_vars,
+  dispersions = peak_vars / (peak_means + 1),  # rough dispersion metric
+  peak_idx = seq_len(nrow(peak_mat))
 )
 
 cat(sprintf("Var columns: %s\n", paste(colnames(var_df), collapse = ", ")))
-cat(sprintf("tile stats: mean=[%.3f, %.3f], var=[%.3f, %.3f]\n",
+cat(sprintf("Peak stats: mean=[%.3f, %.3f], var=[%.3f, %.3f]\n",
             min(var_df$mean), max(var_df$mean),
             min(var_df$variance), max(var_df$variance)))
 
@@ -137,14 +127,14 @@ cat(sprintf("tile stats: mean=[%.3f, %.3f], var=[%.3f, %.3f]\n",
 
 cat("\nExporting files...\n")
 
-# tile accessibility matrix (sparse, Matrix Market format)
-Matrix::writeMM(t(tile_mat),
-                file = file.path(output_dir, "atac_tile_matrix.mtx"))
-cat(sprintf("Wrote atac_tile_matrix.mtx (%d × %d)\n", ncol(tile_mat), nrow(tile_mat)))
+# Peak accessibility matrix (sparse, Matrix Market format)
+Matrix::writeMM(t(peak_mat),
+                file = file.path(output_dir, "atac_peak_matrix.mtx"))
+cat(sprintf("Wrote atac_peak_matrix.mtx (%d × %d)\n", ncol(peak_mat), nrow(peak_mat)))
 
 # Row/col names for matrix
-fwrite(data.table(tile = tile_names),
-       file.path(output_dir, "atac_tile_names.csv"))
+fwrite(data.table(peak = peak_names),
+       file.path(output_dir, "atac_peak_names.csv"))
 fwrite(data.table(cell_id = cell_ids),
        file.path(output_dir, "atac_cell_names.csv"))
 
@@ -157,20 +147,20 @@ fwrite(obs_df, file.path(output_dir, "atac_obs.csv"))
 # Var
 fwrite(var_df, file.path(output_dir, "atac_var.csv"))
 
-# tile genomic coordinates (parse from tile_names)
-parse_tiles <- function(tile_str) {
+# Peak genomic coordinates (parse from peak_names)
+parse_peaks <- function(peak_str) {
   # Assuming format: chr1:10000-15000
-  parts <- strsplit(tile_str, ":")[[1]]
+  parts <- strsplit(peak_str, ":")[[1]]
   chr <- parts[1]
   coords <- strsplit(parts[2], "-")[[1]]
   start <- as.integer(coords[1])
   end <- as.integer(coords[2])
-  data.table(tile = tile_str, chr = chr, start = start, end = end)
+  data.table(peak = peak_str, chr = chr, start = start, end = end)
 }
 
-tile_coords <- rbindlist(lapply(tile_names, parse_tiles))
-fwrite(tile_coords, file.path(output_dir, "atac_tile_coords.csv"))
-cat(sprintf("tile coords: %d tiles parsed\n", nrow(tile_coords)))
+peak_coords <- rbindlist(lapply(peak_names, parse_peaks))
+fwrite(peak_coords, file.path(output_dir, "atac_peak_coords.csv"))
+cat(sprintf("Peak coords: %d peaks parsed\n", nrow(peak_coords)))
 
 # ==============================================================================
 # 6. Summary
